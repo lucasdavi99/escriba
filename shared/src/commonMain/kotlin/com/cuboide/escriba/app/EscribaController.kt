@@ -1,0 +1,955 @@
+package com.cuboide.escriba.app
+
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
+import com.cuboide.escriba.core.export.ExportFormat
+import com.cuboide.escriba.core.export.SCENE_BREAK_TEXT
+import com.cuboide.escriba.core.export.buildExportDocument
+import com.cuboide.escriba.core.export.exportHtml
+import com.cuboide.escriba.core.export.exportMarkdown
+import com.cuboide.escriba.core.export.exportPlainText
+import com.cuboide.escriba.core.export.imagePaths
+import com.cuboide.escriba.core.model.Beat
+import com.cuboide.escriba.core.model.BookManifest
+import com.cuboide.escriba.core.model.BookNotes
+import com.cuboide.escriba.core.model.BookPartGroup
+import com.cuboide.escriba.core.model.ChapterKind
+import com.cuboide.escriba.core.model.NoteBlock
+import com.cuboide.escriba.core.model.chapterNumbers
+import com.cuboide.escriba.core.model.BookSummary
+import com.cuboide.escriba.core.model.ChapterMeta
+import com.cuboide.escriba.core.model.ChapterStatus
+import com.cuboide.escriba.core.model.EntryKind
+import com.cuboide.escriba.core.model.Outline
+import com.cuboide.escriba.core.model.Universe
+import com.cuboide.escriba.core.model.UniverseEntry
+import com.cuboide.escriba.core.outline.StructureTemplate
+import com.cuboide.escriba.core.outline.applyTemplate
+import com.cuboide.escriba.core.outline.move
+import com.cuboide.escriba.core.outline.remove
+import com.cuboide.escriba.core.outline.upsert
+import com.cuboide.escriba.core.storage.AppSettings
+import com.cuboide.escriba.core.storage.BookRepository
+import com.cuboide.escriba.core.storage.FileStore
+import com.cuboide.escriba.core.storage.ProductivityStore
+import com.cuboide.escriba.core.storage.ProductivitySummary
+import com.cuboide.escriba.core.storage.RestoreOutcome
+import com.cuboide.escriba.core.storage.SettingsStore
+import com.cuboide.escriba.core.storage.Snapshot
+import com.cuboide.escriba.core.storage.SnapshotStore
+import com.cuboide.escriba.core.storage.TrashItem
+import com.cuboide.escriba.core.storage.TrashStore
+import com.cuboide.escriba.core.storage.fileName
+import com.cuboide.escriba.core.storage.joinPath
+import com.cuboide.escriba.core.text.BlockKind
+import com.cuboide.escriba.core.text.Edit
+import com.cuboide.escriba.core.text.MarkKind
+import com.cuboide.escriba.core.text.applyTypingRules
+import com.cuboide.escriba.core.text.clearFormatting
+import com.cuboide.escriba.core.text.countManuscriptWords
+import com.cuboide.escriba.core.text.footnoteIds
+import com.cuboide.escriba.core.text.insertFootnoteRef
+import com.cuboide.escriba.core.text.insertStandaloneLine
+import com.cuboide.escriba.core.text.nextFootnoteId
+import com.cuboide.escriba.core.text.rebaseFieldEdit
+import com.cuboide.escriba.core.text.toggleBlock
+import com.cuboide.escriba.core.text.toggleCenter
+import com.cuboide.escriba.core.text.toggleInline
+import com.cuboide.escriba.core.text.FindOptions
+import com.cuboide.escriba.core.text.SearchHit
+import com.cuboide.escriba.core.text.TextMatch
+import com.cuboide.escriba.core.text.findAll
+import com.cuboide.escriba.core.text.replaceAll
+import com.cuboide.escriba.core.text.replaceOne
+import com.cuboide.escriba.core.text.searchBook
+import com.cuboide.escriba.platform.buildDocx
+import com.cuboide.escriba.platform.chooseOpenFile
+import com.cuboide.escriba.platform.chooseSaveFile
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+/** Dependências do app; nos testes usam um FileStore em memória e um relógio controlado. */
+class EscribaServices(
+    val fs: FileStore,
+    libraryDir: String,
+    dataDir: String,
+    val now: () -> Long,
+    val newId: () -> String,
+    val dayKey: (Long) -> String,
+) {
+    val books = BookRepository(fs, libraryDir, now, newId)
+    val snapshots = SnapshotStore(fs, now, newId)
+    val trash = TrashStore(fs, joinPath(dataDir, "lixeira"), books, now, newId)
+    val productivity = ProductivityStore(fs, joinPath(dataDir, "produtividade.json"))
+    val settings = SettingsStore(fs, joinPath(dataDir, "settings.json"))
+}
+
+/** Seções do menu lateral. As que dependem de um livro aberto ficam desabilitadas na biblioteca. */
+enum class Section(val label: String, val needsBook: Boolean) {
+    Biblioteca("Biblioteca", false),
+    Manuscrito("Manuscrito", true),
+    Enredo("Enredo", true),
+    Universo("Universo", true),
+    Metas("Metas", true),
+    Versoes("Versões", true),
+    Busca("Busca", true),
+    Exportar("Exportar", true),
+    Lixeira("Lixeira", false),
+    Preferencias("Preferências", false),
+}
+
+enum class SaveState { Salvo, Pendente, Salvando }
+
+class OpenBook(val path: String, manifest: BookManifest, universe: Universe, outline: Outline, notes: BookNotes = BookNotes()) {
+    var manifest by mutableStateOf(manifest)
+    var universe by mutableStateOf(universe)
+    var outline by mutableStateOf(outline)
+    var notes by mutableStateOf(notes)
+}
+
+class EscribaController(private val services: EscribaServices, private val scope: CoroutineScope) {
+    var settings by mutableStateOf(services.settings.current); private set
+    var library by mutableStateOf<List<BookSummary>>(emptyList()); private set
+    var book by mutableStateOf<OpenBook?>(null); private set
+    var currentChapterId by mutableStateOf<String?>(null); private set
+    var editor by mutableStateOf(TextFieldValue("")); private set
+    var saveState by mutableStateOf(SaveState.Salvo); private set
+    var section by mutableStateOf(Section.Biblioteca); private set
+    var focusMode by mutableStateOf(false)
+    var showChapters by mutableStateOf(true)
+    var showInspector by mutableStateOf(true)
+    var productivity by mutableStateOf(services.productivity.summary(today(), HISTORY_DAYS)); private set
+    var trashItems by mutableStateOf<List<TrashItem>>(emptyList()); private set
+    var snapshots by mutableStateOf<List<Snapshot>>(emptyList()); private set
+    var message by mutableStateOf<String?>(null)
+
+    // Localizar/substituir no capítulo atual
+    var findVisible by mutableStateOf(false)
+    var findQuery by mutableStateOf("")
+    var replaceText by mutableStateOf("")
+    var findOptions by mutableStateOf(FindOptions())
+    var matches by mutableStateOf<List<TextMatch>>(emptyList()); private set
+    var currentMatch by mutableStateOf(-1); private set
+    /** Muda a cada [openFind]; a barra de busca usa isso para pegar o foco do teclado. */
+    var findFocusRequests by mutableStateOf(0); private set
+
+    /** O editor do capítulo tem o foco do teclado (Ctrl+Z vai para o desfazer do manuscrito). */
+    var editorFocused by mutableStateOf(false)
+    /** Mudam quando o editor ou o título do capítulo devem pegar o foco (depois de botões, capítulo novo etc.). */
+    var editorFocusRequests by mutableStateOf(0); private set
+    var titleFocusRequests by mutableStateOf(0); private set
+    var canUndo by mutableStateOf(false); private set
+    var canRedo by mutableStateOf(false); private set
+
+    // Busca no livro inteiro
+    var bookSearchQuery by mutableStateOf("")
+    var bookSearchHits by mutableStateOf<List<SearchHit>>(emptyList()); private set
+
+    val libraryDir: String get() = services.books.libraryDir
+
+    private var autosaveJob: Job? = null
+    /**
+     * Maior contagem de palavras de cada capítulo já registrada hoje. Só o que passa dessa marca entra em
+     * "palavras escritas": apagar e reescrever, ou desfazer e refazer, não conta o mesmo texto duas vezes.
+     */
+    private val wordsHighWater = mutableMapOf<String, Int>()
+    private var highWaterDay = ""
+    private var lastEditAt = 0L
+    private var pendingActiveMs = 0L
+    private val undoStack = ArrayDeque<TextFieldValue>()
+    private val redoStack = ArrayDeque<TextFieldValue>()
+    private var lastUndoAt = 0L
+    private var lastUndoMergeable = false
+    /** Texto que o campo conhece enquanto ainda não recebeu nossa versão corrigida (ver [rebaseFieldEdit]). */
+    private var fieldBase: String? = null
+    private var fieldBaseCursor = 0
+    private var fieldBaseJob: Job? = null
+
+    init {
+        services.trash.retentionDays = settings.trashRetentionDays
+        services.trash.purgeExpired()
+        refreshLibrary()
+        reopenLastBook()
+    }
+
+    /** Ao iniciar, volta para o livro em que se escrevia por último (se ele ainda existir). */
+    private fun reopenLastBook() {
+        val path = settings.lastBookPath ?: return
+        if (library.any { it.path == path }) openBook(path) else updateSettings { it.copy(lastBookPath = null) }
+    }
+
+    // ---------- Biblioteca ----------
+
+    fun refreshLibrary() {
+        library = services.books.listBooks()
+        trashItems = services.trash.list()
+        productivity = services.productivity.summary(today(), HISTORY_DAYS)
+    }
+
+    fun createBook(title: String, author: String) {
+        val created = services.books.createBook(title, author)
+        refreshLibrary()
+        openBook(created.path)
+    }
+
+    fun openBook(path: String) {
+        closeBook()
+        val manifest = runCatching { services.books.loadManifest(path) }.getOrElse {
+            message = "Não foi possível abrir o livro: ${it.message}"
+            return
+        }
+        book = OpenBook(path, manifest, services.books.loadUniverse(path), services.books.loadOutline(path), services.books.loadNotes(path))
+        services.productivity.record(today(), 0, 0, newSession = true)
+        updateSettings { it.copy(lastBookPath = path) }
+        manifest.chapters.firstOrNull()?.let { selectChapter(it.id) }
+        section = Section.Manuscrito
+    }
+
+    fun goTo(target: Section) {
+        if (target.needsBook && book == null) return
+        if (section == Section.Manuscrito && target != Section.Manuscrito) flushSave()
+        if (target != Section.Manuscrito) focusMode = false
+        section = target
+    }
+
+    fun closeBook() {
+        flushSave()
+        book = null
+        section = Section.Biblioteca
+        focusMode = false
+        currentChapterId = null
+        editor = TextFieldValue("")
+        resetUndo()
+        findVisible = false
+        bookSearchHits = emptyList()
+        snapshots = emptyList()
+        refreshLibrary()
+    }
+
+    fun trashBook(summary: BookSummary) {
+        if (book?.path == summary.path) closeBook()
+        if (settings.lastBookPath == summary.path) updateSettings { it.copy(lastBookPath = null) }
+        services.trash.trashBook(summary.path, summary.manifest.title)
+        refreshLibrary()
+        message = "“${summary.manifest.title}” foi para a lixeira."
+    }
+
+    fun updateBookDetails(title: String, author: String, synopsis: String, genre: String, dailyGoal: Int, bookGoal: Int) {
+        updateManifest {
+            it.copy(
+                title = title.trim().ifEmpty { it.title },
+                author = author.trim(),
+                synopsis = synopsis.trim(),
+                genre = genre.trim(),
+                dailyGoal = dailyGoal.coerceAtLeast(0),
+                bookGoal = bookGoal.coerceAtLeast(0),
+            )
+        }
+    }
+
+    fun setGoals(dailyGoal: Int, bookGoal: Int) =
+        updateManifest { it.copy(dailyGoal = dailyGoal.coerceAtLeast(0), bookGoal = bookGoal.coerceAtLeast(0)) }
+
+    // ---------- Capítulos ----------
+
+    val currentChapter: ChapterMeta?
+        get() = book?.manifest?.chapters?.firstOrNull { it.id == currentChapterId }
+
+    fun selectChapter(id: String) {
+        val b = book ?: return
+        if (id == currentChapterId) return
+        flushSave()
+        val body = services.books.readChapter(b.path, id)
+        currentChapterId = id
+        editor = TextFieldValue(body)
+        resetUndo()
+        highWater(id, countManuscriptWords(body))
+        saveState = SaveState.Salvo
+        refreshMatches()
+        snapshots = services.snapshots.list(b.path, id)
+    }
+
+    fun addChapter() {
+        val b = book ?: return
+        val number = b.manifest.chapters.count { it.kind == ChapterKind.Capitulo } + 1
+        val meta = ChapterMeta(services.newId(), "Capítulo $number", modifiedAt = services.now())
+        services.books.writeChapter(b.path, meta.id, "")
+        updateManifest { it.copy(chapters = it.chapters + meta) }
+        selectChapter(meta.id)
+        titleFocusRequests++ // o título já vem selecionado para renomear; Enter leva ao texto
+    }
+
+    /**
+     * Cria uma parte do livro que não é capítulo numerado (prólogo, dedicatória, epílogo…).
+     * As de antes da história entram depois das outras do começo; interlúdios, depois do capítulo aberto;
+     * as de depois da história, no fim.
+     */
+    fun addPart(kind: ChapterKind) {
+        val b = book ?: return
+        flushSave()
+        val chapters = b.manifest.chapters
+        val index = when (kind.group) {
+            BookPartGroup.Antes -> chapters.indexOfFirst { it.kind.group != BookPartGroup.Antes }.let { if (it < 0) chapters.size else it }
+            BookPartGroup.Entre -> chapters.indexOfFirst { it.id == currentChapterId }.let { if (it < 0) chapters.size else it + 1 }
+            BookPartGroup.Depois, null -> chapters.size
+        }
+        val meta = ChapterMeta(services.newId(), kind.label, modifiedAt = services.now(), kind = kind)
+        services.books.writeChapter(b.path, meta.id, "")
+        updateManifest { it.copy(chapters = it.chapters.toMutableList().apply { add(index.coerceIn(0, size), meta) }) }
+        selectChapter(meta.id)
+        requestEditorFocus()
+    }
+
+    fun setChapterKind(id: String, kind: ChapterKind) = updateChapterMeta(id) { it.copy(kind = kind) }
+
+    /** Número de cada capítulo numerado; partes como prólogo e epílogo não aparecem. */
+    val chapterNumbers: Map<String, Int> get() = book?.manifest?.chapters?.let(::chapterNumbers) ?: emptyMap()
+
+    fun renameChapter(id: String, title: String) {
+        if (title.isBlank()) return
+        updateChapterMeta(id) { it.copy(title = title.trim()) }
+    }
+
+    fun setChapterStatus(id: String, status: ChapterStatus) = updateChapterMeta(id) { it.copy(status = status) }
+
+    fun moveChapter(id: String, delta: Int) {
+        updateManifest { m ->
+            val list = m.chapters.toMutableList()
+            val from = list.indexOfFirst { it.id == id }
+            val to = from + delta
+            if (from < 0 || to !in list.indices) return@updateManifest m
+            list.add(to, list.removeAt(from))
+            m.copy(chapters = list)
+        }
+    }
+
+    fun trashChapter(id: String) {
+        val b = book ?: return
+        if (id == currentChapterId) flushSave()
+        val index = b.manifest.chapters.indexOfFirst { it.id == id }
+        val meta = b.manifest.chapters.getOrNull(index) ?: return
+        val body = services.books.readChapter(b.path, id)
+        services.trash.trashChapter(b.path, b.manifest.title, meta, body, index)
+        services.books.deleteChapterFile(b.path, id)
+        updateManifest { it.copy(chapters = it.chapters.filterNot { c -> c.id == id }) }
+        if (id == currentChapterId) {
+            currentChapterId = null
+            editor = TextFieldValue("")
+            resetUndo()
+            b.manifest.chapters.firstOrNull()?.let { selectChapter(it.id) }
+        }
+        trashItems = services.trash.list()
+        message = "Capítulo “${meta.title}” foi para a lixeira."
+    }
+
+    // ---------- Editor e autosave ----------
+
+    /**
+     * Mudança vinda do teclado (digitar, colar, apagar). Aplica as regras de digitação (travessão, aspas,
+     * continuação de lista…) e agrupa a digitação seguida num só passo do desfazer.
+     */
+    fun onEditorChange(value: TextFieldValue) {
+        if (value.text == editor.text) {
+            editor = value
+            return
+        }
+        var incoming = value
+        val base = fieldBase
+        if (base != null && !isInsertionInto(editor.text, value.text)) {
+            // Tecla que chegou antes de o campo receber a correção anterior: aplica sobre o texto corrigido.
+            rebaseFieldEdit(base, value.text, editor.text, fieldBaseCursor)?.let { (text, delta) ->
+                incoming = TextFieldValue(text, TextRange(value.selection.start + delta, value.selection.end + delta))
+            }
+        }
+        val ruled = if (incoming.selection.collapsed) {
+            applyTypingRules(editor.text, incoming.text, incoming.selection.end, settings.smartTypography)
+        } else null
+        recordUndo(editor, mergeable = true)
+        applyEdit(incoming)
+        if (ruled != null) {
+            // A versão sem a correção vira um passo próprio: Ctrl+Z desfaz só a correção, como num editor de texto.
+            recordUndo(editor, mergeable = false)
+            applyEdit(TextFieldValue(ruled.text, TextRange(ruled.selStart, ruled.selEnd)))
+        }
+        // Até o próximo quadro o campo ainda acha que o texto é value.text.
+        if (editor.text != value.text) {
+            fieldBase = value.text
+            fieldBaseCursor = value.selection.end
+            fieldBaseJob?.cancel()
+            fieldBaseJob = scope.launch {
+                delay(FIELD_SYNC_MS)
+                fieldBase = null
+            }
+        } else {
+            fieldBase = null
+        }
+    }
+
+    private fun isInsertionInto(old: String, new: String): Boolean {
+        if (new.length <= old.length) return false
+        var prefix = 0
+        while (prefix < old.length && old[prefix] == new[prefix]) prefix++
+        var suffix = 0
+        while (suffix < old.length - prefix && old[old.length - 1 - suffix] == new[new.length - 1 - suffix]) suffix++
+        return prefix + suffix >= old.length
+    }
+
+    /** Mudança feita pelo app (formatação, substituição, inserção): sempre um passo próprio no desfazer. */
+    private fun commitEdit(value: TextFieldValue) {
+        if (value.text != editor.text) {
+            recordUndo(editor, mergeable = false)
+            applyEdit(value)
+        } else {
+            editor = value
+        }
+        requestEditorFocus()
+    }
+
+    private fun applyEdit(value: TextFieldValue) {
+        editor = value
+        val t = services.now()
+        // Tempo ativo = soma dos intervalos curtos entre edições (pausas longas não contam).
+        if (lastEditAt != 0L) pendingActiveMs += (t - lastEditAt).coerceIn(0, ACTIVE_GAP_MS)
+        lastEditAt = t
+        saveState = SaveState.Pendente
+        if (findVisible) refreshMatches()
+        autosaveJob?.cancel()
+        autosaveJob = scope.launch {
+            delay(AUTOSAVE_DELAY_MS)
+            saveCurrentChapter()
+        }
+    }
+
+    fun requestEditorFocus() {
+        editorFocusRequests++
+    }
+
+    /**
+     * Botão de mostrar/ocultar painel do Manuscrito. Com o painel recolhido por falta de espaço, o clique avisa
+     * em vez de esconder de vez (a preferência só muda quando o painel está de fato na tela).
+     */
+    fun togglePanel(chapters: Boolean, visible: Boolean) {
+        val wanted = if (chapters) showChapters else showInspector
+        if (wanted && !visible) {
+            message = "A janela está estreita demais para mostrar ${if (chapters) "os capítulos" else "o inspetor"} ao lado do texto. Aumente a janela."
+            return
+        }
+        if (chapters) showChapters = !showChapters else showInspector = !showInspector
+    }
+
+    /** Clique na folha fora do texto: cursor no fim do capítulo. */
+    fun focusEditorAtEnd() {
+        editor = editor.copy(selection = TextRange(editor.text.length))
+        requestEditorFocus()
+    }
+
+    // ---------- Desfazer / refazer ----------
+
+    private fun recordUndo(previous: TextFieldValue, mergeable: Boolean) {
+        val t = services.now()
+        val merge = mergeable && lastUndoMergeable && undoStack.isNotEmpty() && t - lastUndoAt < UNDO_MERGE_MS
+        if (!merge) {
+            undoStack.addLast(previous)
+            if (undoStack.size > MAX_UNDO) undoStack.removeFirst()
+        }
+        lastUndoAt = t
+        lastUndoMergeable = mergeable
+        redoStack.clear()
+        updateUndoFlags()
+    }
+
+    fun undo() {
+        val previous = undoStack.removeLastOrNull() ?: return
+        redoStack.addLast(editor)
+        lastUndoMergeable = false
+        applyEdit(previous)
+        updateUndoFlags()
+    }
+
+    fun redo() {
+        val next = redoStack.removeLastOrNull() ?: return
+        undoStack.addLast(editor)
+        lastUndoMergeable = false
+        applyEdit(next)
+        updateUndoFlags()
+    }
+
+    private fun resetUndo() {
+        undoStack.clear()
+        redoStack.clear()
+        lastUndoMergeable = false
+        updateUndoFlags()
+    }
+
+    private fun updateUndoFlags() {
+        canUndo = undoStack.isNotEmpty()
+        canRedo = redoStack.isNotEmpty()
+    }
+
+    fun flushSave() {
+        autosaveJob?.cancel()
+        autosaveJob = null
+        if (saveState != SaveState.Salvo) saveCurrentChapter()
+    }
+
+    private fun saveCurrentChapter() {
+        val b = book ?: return
+        val id = currentChapterId ?: return
+        saveState = SaveState.Salvando
+        val body = editor.text
+        services.books.writeChapter(b.path, id, body)
+        val words = countManuscriptWords(body)
+        // Sem marca de hoje, parte da contagem gravada antes desta edição (não da atual).
+        val lastSaved = b.manifest.chapters.firstOrNull { it.id == id }?.words ?: words
+        val written = (words - highWater(id, lastSaved)).coerceAtLeast(0)
+        if (written > 0) wordsHighWater[id] = words
+        services.productivity.record(today(), written, pendingActiveMs / 1000)
+        pendingActiveMs %= 1000
+        updateChapterMeta(id) { it.copy(words = words, modifiedAt = services.now()) }
+        productivity = services.productivity.summary(today(), HISTORY_DAYS)
+        saveState = SaveState.Salvo
+    }
+
+    val currentWords: Int get() = countManuscriptWords(editor.text)
+
+    /** Total do livro com o capítulo aberto contado ao vivo. */
+    val bookWords: Int
+        get() = book?.manifest?.chapters?.sumOf { if (it.id == currentChapterId) currentWords else it.words } ?: 0
+
+    // ---------- Formatação ----------
+
+    private fun applyFormatting(op: (String, Int, Int) -> Edit) {
+        if (currentChapterId == null) return
+        val sel = editor.selection
+        val result = op(editor.text, sel.min, sel.max)
+        commitEdit(TextFieldValue(result.text, TextRange(result.selStart, result.selEnd)))
+    }
+
+    /** Negrito, itálico, versalete, sobrescrito ou subscrito na seleção (ou para o que for digitado a seguir). */
+    fun toggleMark(kind: MarkKind) = applyFormatting { t, s, e -> toggleInline(t, s, e, kind) }
+
+    /** Título, subtítulo, chamada, lista ou citação nos parágrafos selecionados (de novo volta ao normal). */
+    fun toggleBlockStyle(kind: BlockKind) = applyFormatting { t, s, e -> toggleBlock(t, s, e, kind) }
+
+    fun toggleCentered() = applyFormatting(::toggleCenter)
+
+    fun clearFormat() = applyFormatting(::clearFormatting)
+
+    fun wrapQuotes() = applyFormatting { t, s, e -> Edit(t.substring(0, s) + "“" + t.substring(s, e) + "”" + t.substring(e), s + 1, e + 1) }
+
+    fun insertText(insert: String) = applyFormatting { t, s, e -> Edit(t.substring(0, s) + insert + t.substring(e), s + insert.length) }
+
+    /** Quebra de cena num parágrafo próprio (aparece centralizada e sai assim na exportação). */
+    fun insertSceneBreak() = applyFormatting { t, s, e -> insertStandaloneLine(t, s, e, SCENE_BREAK_TEXT) }
+
+    /** Escolhe uma imagem, copia para `assets/` do livro e insere `![legenda](assets/…)` num parágrafo próprio. */
+    fun insertImage() {
+        val b = book ?: return
+        if (currentChapterId == null) return
+        scope.launch {
+            val source = chooseOpenFile("Inserir imagem", IMAGE_EXTENSIONS) ?: return@launch
+            val bytes = services.fs.readBytes(source)
+            if (bytes == null) {
+                message = "Não foi possível ler a imagem."
+                return@launch
+            }
+            val relative = services.books.importAsset(b.path, bytes, source.substringAfterLast('.', "png"))
+            val caption = fileName(source).substringBeforeLast('.').replace(']', ')')
+            applyFormatting { t, s, e -> insertStandaloneLine(t, s, e, "![$caption]($relative)") }
+        }
+    }
+
+    // ---------- Notas de rodapé ----------
+
+    /** Notas do capítulo aberto na ordem em que aparecem no texto: (id, texto). */
+    val currentFootnotes: List<Pair<String, String>>
+        get() {
+            val chapter = currentChapter ?: return emptyList()
+            return footnoteIds(editor.text).map { it to chapter.footnotes[it].orEmpty() }
+        }
+
+    /** Insere a chamada da nota depois da seleção e guarda o texto da nota no capítulo. */
+    fun addFootnote(noteText: String) {
+        val chapter = currentChapter ?: return
+        val id = nextFootnoteId(editor.text, chapter.footnotes.keys)
+        updateChapterMeta(chapter.id) { it.copy(footnotes = it.footnotes + (id to noteText.trim())) }
+        applyFormatting { t, s, e -> insertFootnoteRef(t, s, e, id) }
+    }
+
+    fun updateFootnote(id: String, noteText: String) {
+        val chapterId = currentChapterId ?: return
+        updateChapterMeta(chapterId) { it.copy(footnotes = it.footnotes + (id to noteText)) }
+    }
+
+    /** Tira a chamada do texto. O texto da nota fica guardado, para o Ctrl+Z trazer tudo de volta. */
+    fun removeFootnote(id: String) {
+        val ref = "${MarkKind.Footnote.open}$id${MarkKind.Footnote.close}"
+        val at = editor.text.indexOf(ref)
+        if (at >= 0) commitEdit(TextFieldValue(editor.text.removeRange(at, at + ref.length), TextRange(at)))
+    }
+
+    // ---------- Blocos de notas do livro ----------
+
+    fun addNoteBlock() {
+        val b = book ?: return
+        saveNotes(b, b.notes.copy(blocks = b.notes.blocks + NoteBlock(services.newId())))
+    }
+
+    fun updateNoteBlock(block: NoteBlock) {
+        val b = book ?: return
+        saveNotes(b, b.notes.copy(blocks = b.notes.blocks.map { if (it.id == block.id) block else it }))
+    }
+
+    fun removeNoteBlock(id: String) {
+        val b = book ?: return
+        saveNotes(b, b.notes.copy(blocks = b.notes.blocks.filterNot { it.id == id }))
+    }
+
+    private fun saveNotes(b: OpenBook, notes: BookNotes) {
+        b.notes = notes
+        services.books.saveNotes(b.path, notes)
+    }
+
+    /** Cria no Universo uma ficha com o nome selecionado no texto. */
+    fun createEntryFromSelection(kind: EntryKind) {
+        val b = book ?: return
+        val name = editor.text.substring(editor.selection.min, editor.selection.max).trim()
+        if (name.isEmpty() || '\n' in name) {
+            message = "Selecione um nome no texto para criar a ficha."
+            return
+        }
+        if (b.universe.entries.any { it.kind == kind && it.name.equals(name, ignoreCase = true) }) {
+            message = "Já existe uma ficha de ${kind.label.lowercase()} chamada “$name”."
+            return
+        }
+        saveEntry(newEntry(kind).copy(name = name))
+        message = "Ficha de ${kind.label.lowercase()} “$name” criada no Universo."
+        requestEditorFocus()
+    }
+
+    // ---------- Localizar / substituir ----------
+
+    fun openFind() {
+        goTo(Section.Manuscrito)
+        findVisible = true
+        val selected = editor.text.substring(editor.selection.min, editor.selection.max)
+        if (selected.isNotEmpty() && '\n' !in selected) findQuery = selected
+        refreshMatches()
+        findFocusRequests++
+    }
+
+    fun closeFind() {
+        findVisible = false
+        matches = emptyList()
+        currentMatch = -1
+    }
+
+    fun refreshMatches() {
+        matches = if (findVisible) findAll(editor.text, findQuery, findOptions) else emptyList()
+        currentMatch = when {
+            matches.isEmpty() -> -1
+            else -> matches.indexOfFirst { it.start >= editor.selection.min }.takeIf { it >= 0 } ?: 0
+        }
+    }
+
+    fun goToMatch(delta: Int) {
+        if (matches.isEmpty()) return
+        currentMatch = (currentMatch + delta).mod(matches.size)
+        val m = matches[currentMatch]
+        editor = editor.copy(selection = TextRange(m.start, m.end))
+    }
+
+    fun replaceCurrent() {
+        val m = matches.getOrNull(currentMatch) ?: return
+        val text = replaceOne(editor.text, m, findQuery, replaceText, findOptions)
+        commitEdit(TextFieldValue(text, TextRange(m.start)))
+        refreshMatches()
+    }
+
+    fun replaceAllInChapter() {
+        val result = replaceAll(editor.text, findQuery, replaceText, findOptions)
+        if (result.count == 0) return
+        snapshotCurrent("Antes de substituir “$findQuery”")
+        commitEdit(TextFieldValue(result.text, TextRange(0)))
+        refreshMatches()
+        message = "${result.count} substituição(ões) no capítulo."
+    }
+
+    /** Apaga todas as ocorrências no capítulo (guarda uma versão antes). */
+    fun deleteAllInChapter() {
+        val result = replaceAll(editor.text, findQuery, "", findOptions)
+        if (result.count == 0) return
+        snapshotCurrent("Antes de apagar “$findQuery”")
+        commitEdit(TextFieldValue(result.text, TextRange(0)))
+        refreshMatches()
+        message = "${result.count} ocorrência(s) apagada(s) no capítulo."
+    }
+
+    fun replaceAllInBook() {
+        val b = book ?: return
+        flushSave()
+        var total = 0
+        for (meta in b.manifest.chapters) {
+            val body = services.books.readChapter(b.path, meta.id)
+            val result = replaceAll(body, findQuery, replaceText, findOptions)
+            if (result.count == 0) continue
+            services.snapshots.create(b.path, meta.id, body, "Antes de substituir “$findQuery” no livro", countManuscriptWords(body))
+            services.books.writeChapter(b.path, meta.id, result.text)
+            val words = countManuscriptWords(result.text)
+            raiseHighWater(meta.id, words)
+            updateChapterMeta(meta.id) { it.copy(words = words, modifiedAt = services.now()) }
+            total += result.count
+        }
+        currentChapterId?.let { id ->
+            editor = TextFieldValue(services.books.readChapter(b.path, id))
+            // O desfazer do editor só alcançaria este capítulo; a volta completa fica nas versões salvas acima.
+            resetUndo()
+            snapshots = services.snapshots.list(b.path, id)
+        }
+        refreshMatches()
+        message = "$total substituição(ões) no livro."
+    }
+
+    // ---------- Busca no livro ----------
+
+    fun runBookSearch() {
+        val b = book ?: return
+        flushSave()
+        val chapters = b.manifest.chapters.map { Triple(it.id, it.title, services.books.readChapter(b.path, it.id)) }
+        bookSearchHits = searchBook(chapters, bookSearchQuery, findOptions)
+    }
+
+    fun openHit(hit: SearchHit) {
+        selectChapter(hit.chapterId)
+        val end = minOf(hit.end, editor.text.length)
+        editor = editor.copy(selection = TextRange(minOf(hit.start, end), end))
+    }
+
+    // ---------- Versões ----------
+
+    fun snapshotCurrent(label: String = "Versão manual") {
+        val b = book ?: return
+        val id = currentChapterId ?: return
+        services.snapshots.create(b.path, id, editor.text, label, currentWords)
+        snapshots = services.snapshots.list(b.path, id)
+    }
+
+    fun restoreSnapshot(snapshot: Snapshot) {
+        snapshotCurrent("Antes de restaurar versão")
+        commitEdit(TextFieldValue(snapshot.body))
+        currentChapterId?.let { raiseHighWater(it, countManuscriptWords(snapshot.body)) } // restaurar não é "escrever"
+        flushSave()
+        message = "Versão restaurada. O texto anterior foi guardado em Versões."
+    }
+
+    fun deleteSnapshot(snapshot: Snapshot) {
+        val b = book ?: return
+        services.snapshots.remove(b.path, snapshot)
+        snapshots = services.snapshots.list(b.path, snapshot.chapterId)
+    }
+
+    // ---------- Universo ----------
+
+    fun saveEntry(entry: UniverseEntry) {
+        val b = book ?: return
+        val stamped = entry.copy(modifiedAt = services.now())
+        val entries = b.universe.entries
+        val updated = if (entries.any { it.id == entry.id }) entries.map { if (it.id == entry.id) stamped else it } else entries + stamped
+        b.universe = b.universe.copy(entries = updated)
+        services.books.saveUniverse(b.path, b.universe)
+    }
+
+    fun newEntry(kind: EntryKind): UniverseEntry = UniverseEntry(services.newId(), kind, "")
+
+    /** Cria e grava uma ficha vazia, já pronta para edição. */
+    fun createEntry(kind: EntryKind): UniverseEntry = newEntry(kind).also { saveEntry(it) }
+
+    /** Capítulos cujo texto cita [name] (sem diferenciar maiúsculas). */
+    fun chaptersMentioning(name: String): List<ChapterMeta> {
+        val b = book ?: return emptyList()
+        if (name.isBlank()) return emptyList()
+        return b.manifest.chapters.filter { meta ->
+            val body = if (meta.id == currentChapterId) editor.text else services.books.readChapter(b.path, meta.id)
+            body.contains(name.trim(), ignoreCase = true)
+        }
+    }
+
+    fun trashEntry(entry: UniverseEntry) {
+        val b = book ?: return
+        services.trash.trashEntry(b.path, b.manifest.title, entry)
+        b.universe = b.universe.copy(entries = b.universe.entries.filterNot { it.id == entry.id })
+        services.books.saveUniverse(b.path, b.universe)
+        trashItems = services.trash.list()
+    }
+
+    // ---------- Enredo ----------
+
+    fun newBeat(): Beat = Beat(services.newId(), "")
+
+    fun saveBeat(beat: Beat) = updateOutline { it.upsert(beat.copy(title = beat.title.trim(), modifiedAt = services.now())) }
+
+    fun moveBeat(id: String, delta: Int) = updateOutline { it.move(id, delta) }
+
+    fun trashBeat(id: String) {
+        val b = book ?: return
+        val index = b.outline.beats.indexOfFirst { it.id == id }
+        if (index < 0) return
+        val beat = b.outline.beats[index]
+        services.trash.trashBeat(b.path, b.manifest.title, beat, index)
+        updateOutline { it.remove(id) }
+        trashItems = services.trash.list()
+        message = "Cena “${beat.title.ifBlank { "sem título" }}” foi para a lixeira."
+    }
+
+    fun applyTemplate(template: StructureTemplate) {
+        updateOutline { it.applyTemplate(template, services.newId, services.now()) }
+        message = "Modelo “${template.name}” aplicado: ${template.steps.size} cenas adicionadas ao fim do roteiro."
+    }
+
+    /** Abre no editor o capítulo vinculado à cena. */
+    fun openBeatChapter(beat: Beat) {
+        val chapterId = beat.chapterId ?: return
+        if (book?.manifest?.chapters?.none { it.id == chapterId } != false) return
+        selectChapter(chapterId)
+        section = Section.Manuscrito
+    }
+
+    /** Cria um capítulo com o título da cena e vincula os dois. */
+    fun createChapterForBeat(beat: Beat) {
+        val b = book ?: return
+        val title = beat.title.ifBlank { "Capítulo ${b.manifest.chapters.size + 1}" }
+        val meta = ChapterMeta(services.newId(), title, modifiedAt = services.now())
+        services.books.writeChapter(b.path, meta.id, "")
+        updateManifest { it.copy(chapters = it.chapters + meta) }
+        saveBeat(beat.copy(chapterId = meta.id))
+    }
+
+    private fun updateOutline(transform: (Outline) -> Outline) {
+        val b = book ?: return
+        val updated = transform(b.outline)
+        if (updated == b.outline) return
+        b.outline = updated
+        services.books.saveOutline(b.path, updated)
+    }
+
+    // ---------- Lixeira ----------
+
+    fun restoreFromTrash(item: TrashItem) {
+        when (val outcome = services.trash.restore(item)) {
+            is RestoreOutcome.Restored -> {
+                if (book?.path == outcome.bookPath) reloadOpenBook()
+                message = "“${item.title}” restaurado."
+            }
+            is RestoreOutcome.OriginMissing ->
+                message = "O livro de origem (${outcome.bookTitle ?: "desconhecido"}) não existe mais. Restaure o livro primeiro."
+        }
+        refreshLibrary()
+    }
+
+    fun deleteForever(item: TrashItem) {
+        services.trash.deleteForever(item)
+        trashItems = services.trash.list()
+    }
+
+    /** Restaura todos os [items] (os que estão visíveis no filtro da lixeira). */
+    fun restoreAllFromTrash(items: List<TrashItem>) {
+        flushSave()
+        val restored = services.trash.restoreAll(items)
+        reloadOpenBook()
+        refreshLibrary()
+        val missing = items.size - restored
+        message = if (missing == 0) "$restored item(ns) restaurado(s)."
+        else "$restored item(ns) restaurado(s). $missing ficaram na lixeira porque o livro de origem não existe mais."
+    }
+
+    /** Apaga de vez os [items] (os que estão visíveis no filtro da lixeira). */
+    fun emptyTrash(items: List<TrashItem>) {
+        items.forEach { services.trash.deleteForever(it) }
+        trashItems = services.trash.list()
+        message = "${items.size} item(ns) apagado(s) definitivamente."
+    }
+
+    /** Relê do disco o livro aberto (depois de restaurar coisas nele pela lixeira). */
+    private fun reloadOpenBook() {
+        val open = book ?: return
+        open.manifest = services.books.loadManifest(open.path)
+        open.universe = services.books.loadUniverse(open.path)
+        open.outline = services.books.loadOutline(open.path)
+    }
+
+    fun trashDaysLeft(item: TrashItem) = services.trash.daysLeft(item)
+
+    // ---------- Exportação ----------
+
+    fun export(format: ExportFormat) {
+        val b = book ?: return
+        flushSave()
+        scope.launch {
+            val target = chooseSaveFile(b.manifest.title, format.extension) ?: return@launch
+            runCatching {
+                val text = buildExportDocument(b.manifest, services.books.readAllChapters(b.path, b.manifest))
+                val doc = text.copy(images = imagePaths(text).mapNotNull { path -> services.books.readAsset(b.path, path)?.let { path to it } }.toMap())
+                when (format) {
+                    ExportFormat.Markdown -> services.fs.writeText(target, exportMarkdown(doc))
+                    ExportFormat.Texto -> services.fs.writeText(target, exportPlainText(doc))
+                    ExportFormat.Html -> services.fs.writeText(target, exportHtml(doc))
+                    ExportFormat.Docx -> services.fs.writeBytes(target, buildDocx(doc))
+                }
+            }.onSuccess { message = "Exportado para $target" }
+                .onFailure { message = "Falha ao exportar: ${it.message}" }
+        }
+    }
+
+    // ---------- Preferências ----------
+
+    fun updateSettings(transform: (AppSettings) -> AppSettings) {
+        services.settings.update(transform)
+        settings = services.settings.current
+        services.trash.retentionDays = settings.trashRetentionDays
+    }
+
+    // ---------- Internos ----------
+
+    private fun updateChapterMeta(id: String, transform: (ChapterMeta) -> ChapterMeta) =
+        updateManifest { m -> m.copy(chapters = m.chapters.map { if (it.id == id) transform(it) else it }) }
+
+    private fun updateManifest(transform: (BookManifest) -> BookManifest) {
+        val b = book ?: return
+        val updated = transform(b.manifest)
+        if (updated == b.manifest) return
+        b.manifest = updated.copy(modifiedAt = services.now())
+        services.books.saveManifest(b.path, b.manifest)
+    }
+
+    /** Marca do capítulo hoje; se ainda não há, começa em [current]. Muda de dia, recomeça do zero. */
+    private fun highWater(chapterId: String, current: Int): Int {
+        val day = today()
+        if (day != highWaterDay) {
+            wordsHighWater.clear()
+            highWaterDay = day
+        }
+        return wordsHighWater.getOrPut(chapterId) { current }
+    }
+
+    /** Texto que entrou sem ser digitado (substituição, restauração) passa a fazer parte da marca. */
+    private fun raiseHighWater(chapterId: String, words: Int) {
+        wordsHighWater[chapterId] = maxOf(highWater(chapterId, words), words)
+    }
+
+    private fun today() = services.dayKey(services.now())
+
+    companion object {
+        const val AUTOSAVE_DELAY_MS = 800L
+        const val HISTORY_DAYS = 84
+        const val ACTIVE_GAP_MS = 30_000L
+        const val UNDO_MERGE_MS = 1_500L
+        const val FIELD_SYNC_MS = 120L
+        const val MAX_UNDO = 300
+        val IMAGE_EXTENSIONS = listOf("png", "jpg", "jpeg", "gif", "webp")
+    }
+}
