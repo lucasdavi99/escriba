@@ -68,7 +68,20 @@ import com.cuboide.escriba.core.text.searchBook
 import com.cuboide.escriba.platform.buildDocx
 import com.cuboide.escriba.platform.chooseOpenFile
 import com.cuboide.escriba.platform.chooseSaveFile
+import com.cuboide.escriba.core.layout.ImageSizer
+import com.cuboide.escriba.core.layout.LaidOutBook
+import com.cuboide.escriba.core.layout.LayoutSettings
+import com.cuboide.escriba.core.layout.LayoutTheme
+import com.cuboide.escriba.core.layout.layoutBook
+import com.cuboide.escriba.core.layout.loadLayoutSettings
+import com.cuboide.escriba.core.layout.saveLayoutSettings
+import com.cuboide.escriba.platform.imagePixelSize
+import com.cuboide.escriba.platform.layoutMeasurer
+import com.cuboide.escriba.platform.writeLayoutPdf
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -99,6 +112,7 @@ enum class Section(val label: String, val needsBook: Boolean) {
     Versoes("Versões", true),
     Busca("Busca", true),
     Exportar("Exportar", true),
+    Diagramacao("Diagramação", true),
     Lixeira("Lixeira", false),
     Preferencias("Preferências", false),
 }
@@ -152,6 +166,13 @@ class EscribaController(private val services: EscribaServices, private val scope
 
     val libraryDir: String get() = services.books.libraryDir
 
+    // Diagramação
+    var layoutSettings by mutableStateOf(LayoutSettings()); private set
+    var layout by mutableStateOf<LaidOutBook?>(null); private set
+    var layoutBusy by mutableStateOf(false); private set
+    var layoutError by mutableStateOf<String?>(null); private set
+    private var layoutJob: Job? = null
+
     private var autosaveJob: Job? = null
     /**
      * Maior contagem de palavras de cada capítulo já registrada hoje. Só o que passa dessa marca entra em
@@ -204,6 +225,8 @@ class EscribaController(private val services: EscribaServices, private val scope
             return
         }
         book = OpenBook(path, manifest, services.books.loadUniverse(path), services.books.loadOutline(path), services.books.loadNotes(path))
+        layoutSettings = loadLayoutSettings(services.fs, path)
+        layout = null
         services.productivity.record(today(), 0, 0, newSession = true)
         updateSettings { it.copy(lastBookPath = path) }
         manifest.chapters.firstOrNull()?.let { selectChapter(it.id) }
@@ -215,10 +238,14 @@ class EscribaController(private val services: EscribaServices, private val scope
         if (section == Section.Manuscrito && target != Section.Manuscrito) flushSave()
         if (target != Section.Manuscrito) focusMode = false
         section = target
+        if (target == Section.Diagramacao) requestLayout(0)
     }
 
     fun closeBook() {
         flushSave()
+        layoutJob?.cancel()
+        layout = null
+        layoutBusy = false
         book = null
         section = Section.Biblioteca
         focusMode = false
@@ -905,6 +932,60 @@ class EscribaController(private val services: EscribaServices, private val scope
         }
     }
 
+    // ---------- Diagramação ----------
+
+    fun updateLayout(transform: (LayoutSettings) -> LayoutSettings) {
+        val b = book ?: return
+        val updated = transform(layoutSettings)
+        if (updated == layoutSettings) return
+        layoutSettings = updated
+        saveLayoutSettings(services.fs, b.path, updated)
+        requestLayout()
+    }
+
+    fun applyLayoutTheme(theme: LayoutTheme) = updateLayout { theme.apply(it) }
+
+    /** Imagem do livro usada pela diagramação (prévia e PDF). */
+    fun layoutImage(path: String): ByteArray? = book?.let { services.books.readAsset(it.path, path) }
+
+    /** Refaz a diagramação em segundo plano; várias mudanças seguidas viram um único cálculo. */
+    fun requestLayout(delayMs: Long = LAYOUT_DELAY_MS) {
+        val b = book ?: return
+        layoutJob?.cancel()
+        layoutJob = scope.launch {
+            if (delayMs > 0) delay(delayMs)
+            flushSave()
+            layoutBusy = true
+            val settings = layoutSettings
+            val manifest = b.manifest
+            try {
+                val chapters = services.books.readAllChapters(b.path, manifest)
+                val result = withContext(Dispatchers.Default) {
+                    layoutBook(manifest, chapters, settings, layoutMeasurer(), ImageSizer { p -> services.books.readAsset(b.path, p)?.let(::imagePixelSize) })
+                }
+                layout = result
+                layoutError = null
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                layoutError = "Não foi possível diagramar: ${e.message}"
+            } finally {
+                layoutBusy = false
+            }
+        }
+    }
+
+    fun exportLayoutPdf() {
+        val b = book ?: return
+        val laid = layout ?: return
+        scope.launch {
+            val target = chooseSaveFile("${b.manifest.title} - miolo", "pdf") ?: return@launch
+            runCatching { withContext(Dispatchers.Default) { writeLayoutPdf(laid, target, ::layoutImage) } }
+                .onSuccess { message = "PDF do miolo gerado: $target (${laid.pages.size} páginas)" }
+                .onFailure { message = "Falha ao gerar o PDF: ${it.message}" }
+        }
+    }
+
     // ---------- Preferências ----------
 
     fun updateSettings(transform: (AppSettings) -> AppSettings) {
@@ -945,6 +1026,7 @@ class EscribaController(private val services: EscribaServices, private val scope
 
     companion object {
         const val AUTOSAVE_DELAY_MS = 800L
+        const val LAYOUT_DELAY_MS = 350L
         const val HISTORY_DAYS = 84
         const val ACTIVE_GAP_MS = 30_000L
         const val UNDO_MERGE_MS = 1_500L

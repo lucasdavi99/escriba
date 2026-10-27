@@ -36,3 +36,23 @@ expect fun systemFontFamily(candidates: List<String>): androidx.compose.ui.text.
 
 /** Fontes serifadas instaladas que fazem sentido para o texto do livro. */
 expect fun installedBookFonts(): List<String>
+
+/** Medidor de texto da diagramação (mesmas fontes do PDF e da prévia). */
+expect fun layoutMeasurer(): com.cuboide.escriba.core.layout.GlyphMeasurer
+
+/** Famílias de fonte que podem ir para o PDF da diagramação. Pode demorar na primeira chamada (lê as fontes do sistema). */
+expect fun layoutFontFamilies(): List<String>
+
+expect fun imagePixelSize(bytes: ByteArray): Pair<Int, Int>?
+
+/** Uma página diagramada como imagem, para a prévia. [pxPerPt] = pixels por ponto tipográfico. */
+expect fun renderLayoutPage(
+    book: com.cuboide.escriba.core.layout.LaidOutBook,
+    page: com.cuboide.escriba.core.layout.LaidPage,
+    pxPerPt: Float,
+    showGuides: Boolean,
+    images: (String) -> ByteArray?,
+): androidx.compose.ui.graphics.ImageBitmap
+
+/** Grava o PDF do miolo em [path]. */
+expect fun writeLayoutPdf(book: com.cuboide.escriba.core.layout.LaidOutBook, path: String, images: (String) -> ByteArray?)

@@ -23,8 +23,15 @@ kotlin {
             implementation(libs.kotlinx.coroutinesCore)
             implementation(libs.kotlinx.serializationJson)
         }
+        jvmMain.dependencies {
+            implementation(libs.pdfbox)
+        }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
         }
     }
+}
+// `-Pescriba.layoutPreviewDir=<pasta>` grava PNGs das páginas do PDF de teste da diagramação para conferência visual.
+tasks.withType<Test>().configureEach {
+    providers.gradleProperty("escriba.layoutPreviewDir").orNull?.let { systemProperty("escriba.layoutPreviewDir", it) }
 }

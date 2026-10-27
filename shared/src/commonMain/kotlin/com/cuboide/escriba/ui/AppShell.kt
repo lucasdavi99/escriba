@@ -22,6 +22,7 @@ import androidx.compose.material.icons.automirrored.outlined.MenuOpen
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.ImportContacts
 import androidx.compose.material.icons.outlined.Insights
 import androidx.compose.material.icons.outlined.LocalLibrary
 import androidx.compose.material.icons.outlined.Menu
@@ -58,6 +59,7 @@ val Section.icon: ImageVector
         Section.Versoes -> Icons.Outlined.History
         Section.Busca -> Icons.Outlined.Search
         Section.Exportar -> Icons.Outlined.Publish
+        Section.Diagramacao -> Icons.Outlined.ImportContacts
         Section.Lixeira -> Icons.Outlined.DeleteOutline
         Section.Preferencias -> Icons.Outlined.Settings
     }
@@ -66,7 +68,7 @@ private val groups = listOf(
     null to listOf(Section.Biblioteca),
     "Escrever" to listOf(Section.Manuscrito, Section.Enredo, Section.Universo),
     "Acompanhar" to listOf(Section.Metas, Section.Versoes, Section.Busca),
-    "Entregar" to listOf(Section.Exportar),
+    "Entregar" to listOf(Section.Diagramacao, Section.Exportar),
 )
 
 @Composable
@@ -83,6 +85,7 @@ fun AppShell(c: EscribaController) {
                 Section.Versoes -> VersionsScreen(c)
                 Section.Busca -> SearchScreen(c)
                 Section.Exportar -> ExportScreen(c)
+                Section.Diagramacao -> LayoutScreen(c)
                 Section.Lixeira -> TrashScreen(c)
                 Section.Preferencias -> SettingsScreen(c)
             }
