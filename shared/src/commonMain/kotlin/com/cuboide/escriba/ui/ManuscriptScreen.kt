@@ -25,6 +25,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.VerticalScrollbar
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.FormatIndentIncrease
@@ -90,6 +92,11 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.foundation.relocation.bringIntoViewResponder
 import androidx.compose.foundation.relocation.BringIntoViewResponder
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.input.pointer.isPrimaryPressed
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.geometry.Offset
@@ -147,6 +154,59 @@ fun statusColor(status: ChapterStatus): Color = when (status) {
 /** Palavras por página de livro, para a estimativa "página x de y" da barra de status. */
 private const val WORDS_PER_PAGE = 250
 
+/**
+ * Abaixo de ~8000 px do começo do texto o campo deixa de receber cliques (só dava para mexer pelo teclado). O clique
+ * fundo é pego na janela da rolagem, onde ainda chega, e traduzido para a posição no campo.
+ */
+private class DeepClicks {
+    var viewport: LayoutCoordinates? = null
+    var box: LayoutCoordinates? = null
+    /** Clique ([anchor] == [current]) ou arrasto; [clicks] = 2 para duplo clique (palavra). */
+    var onSelect: (anchor: Offset, current: Offset, clicks: Int) -> Unit = { _, _, _ -> }
+
+    private fun local(v: Offset): Offset? {
+        val vp = viewport?.takeIf { it.isAttached } ?: return null
+        val b = box?.takeIf { it.isAttached } ?: return null
+        return b.localPositionOf(vp, v)
+    }
+
+    /** Mouse sobre a parte funda do texto: o campo não responde ali, então o cursor de texto vem daqui. */
+    private var hovering by mutableStateOf(false)
+
+    fun modifier(): Modifier = Modifier.onGloballyPositioned { viewport = it }
+        .pointerHoverIcon(if (hovering) PointerIcon.Text else PointerIcon.Default)
+        .pointerInput(Unit) {
+        awaitPointerEventScope {
+            var lastTime = 0L
+            var lastAt = Offset.Zero
+            while (true) {
+                val down = awaitPointerEvent(PointerEventPass.Initial)
+                val start = down.changes.firstOrNull()
+                if (down.type == PointerEventType.Move || down.type == PointerEventType.Enter) {
+                    hovering = start?.let { p -> local(p.position)?.let { it.y > DEEP_CLICK_PX && it.x in 0f..(box?.size?.width ?: 0).toFloat() } } == true
+                } else if (down.type == PointerEventType.Exit) hovering = false
+                if (down.type != PointerEventType.Press || start == null || !down.buttons.isPrimaryPressed) continue
+                val anchor = local(start.position) ?: continue
+                if (anchor.y <= DEEP_CLICK_PX) continue
+                val double = start.uptimeMillis - lastTime < 450 && (start.position - lastAt).getDistance() < viewConfiguration.touchSlop * 2
+                lastTime = start.uptimeMillis
+                lastAt = start.position
+                down.changes.forEach { it.consume() }
+                onSelect(anchor, anchor, if (double) 2 else 1)
+                while (true) {
+                    val e = awaitPointerEvent(PointerEventPass.Initial)
+                    val ch = e.changes.firstOrNull() ?: break
+                    ch.consume()
+                    if (!ch.pressed) break
+                    if (!double) local(ch.position)?.let { onSelect(anchor, it, 1) }
+                }
+            }
+        }
+    }
+}
+
+/** Altura (px) a partir da qual o clique do campo de texto deixa de acertar a posição. */
+private const val DEEP_CLICK_PX = 7000f
 private val CHAPTERS_WIDTH = 264.dp
 private val INSPECTOR_WIDTH = 300.dp
 /** Largura mínima para a folha e a barra de status caberem sem espremer. */
@@ -516,8 +576,11 @@ private fun Page(c: EscribaController, chapter: ChapterMeta) {
     val fonts = LocalFonts.current
     val s = c.settings
     val scroll = rememberScrollState()
+    val deep = remember { DeepClicks() }
+    // A barra de rolagem fica na borda da mesa (não da folha) e dá para arrastá-la para andar pelo capítulo.
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
     Column(
-        Modifier.fillMaxHeight().verticalScroll(scroll).padding(top = 24.dp).widthIn(max = s.editorWidth.dp)
+        Modifier.fillMaxHeight().then(deep.modifier()).verticalScroll(scroll).padding(top = 24.dp).widthIn(max = s.editorWidth.dp)
             .shadow(10.dp, RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
             .background(palette.paper, RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
             // Clique na folha fora do texto (margens, abaixo do fim) leva o cursor para o fim do capítulo.
@@ -536,7 +599,12 @@ private fun Page(c: EscribaController, chapter: ChapterMeta) {
         Spacer(Modifier.height(8.dp))
         ChapterTitleField(c, chapter)
         Ornament(palette.accent, Modifier.align(Alignment.CenterHorizontally).padding(vertical = 22.dp))
-        ManuscriptEditor(c, s, fonts.book, palette)
+        ManuscriptEditor(c, deep, s, fonts.book, palette)
+    }
+    VerticalScrollbar(
+        adapter = rememberScrollbarAdapter(scroll),
+        modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight().padding(vertical = 4.dp),
+    )
     }
 }
 
@@ -576,7 +644,7 @@ private fun ChapterTitleField(c: EscribaController, chapter: ChapterMeta) {
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun ManuscriptEditor(c: EscribaController, s: AppSettings, bookFont: androidx.compose.ui.text.font.FontFamily, palette: EscribaPalette) {
+private fun ManuscriptEditor(c: EscribaController, deep: DeepClicks, s: AppSettings, bookFont: androidx.compose.ui.text.font.FontFamily, palette: EscribaPalette) {
     val focus = remember { FocusRequester() }
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
     var footnoteDialog by remember { mutableStateOf(false) }
@@ -611,6 +679,28 @@ private fun ManuscriptEditor(c: EscribaController, s: AppSettings, bookFont: and
     val currentLayout by rememberUpdatedState(layout)
     val currentSelection by rememberUpdatedState(c.editor)
     val currentStyling by rememberUpdatedState(styling)
+    deep.onSelect = { anchor, current, clicks ->
+        val l = currentLayout
+        if (l != null) {
+            val v = currentSelection
+            val st = currentStyling
+            // Clicar depois do fim de uma linha devolve o começo da seguinte: fica na linha clicada.
+            fun at(pos: Offset): Int {
+                var shown = l.getOffsetForPosition(pos)
+                val line = l.getLineForVerticalPosition(pos.y)
+                if (l.getLineForOffset(shown) > line) shown = l.getLineEnd(line, visibleEnd = true)
+                return st.rawOffset(v.text, shown)
+            }
+            val range = if (clicks == 2) {
+                val w = l.getWordBoundary(l.getOffsetForPosition(anchor))
+                TextRange(st.rawOffset(v.text, w.start), st.rawOffset(v.text, w.end))
+            } else {
+                TextRange(at(anchor), at(current))
+            }
+            c.onEditorChange(v.copy(selection = range))
+            c.requestEditorFocus()
+        }
+    }
     val manyLines = with(LocalDensity.current) { (s.editorFontSize * s.lineSpacing * 3).sp.toPx() }
     val cursorOnly = remember(manyLines) {
         object : BringIntoViewResponder {
@@ -625,7 +715,9 @@ private fun ManuscriptEditor(c: EscribaController, s: AppSettings, bookFont: and
             override suspend fun bringChildIntoView(localRect: () -> Rect?) = Unit
         }
     }
-    Box(Modifier.bringIntoViewResponder(cursorOnly)) {
+    Box(
+        Modifier.bringIntoViewResponder(cursorOnly).onGloballyPositioned { deep.box = it },
+    ) {
         BasicTextField(
             value = c.editor,
             onValueChange = { v ->
