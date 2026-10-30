@@ -84,3 +84,9 @@ expect fun writeEbookCover(
     size: com.cuboide.escriba.core.layout.EbookCoverSize,
     images: (String) -> ByteArray?,
 )
+
+/** Contracapa, lombada e capa lado a lado (sem sangria nem orelhas) em PNG, com [widthPx] de largura: a pele do livro 3D. */
+expect fun coverFacesPng(cover: com.cuboide.escriba.core.layout.CoverLayout, widthPx: Int, images: (String) -> ByteArray?): ByteArray
+
+/** Lê uma imagem (PNG, JPEG…) para mostrar na tela; `null` se não der. */
+expect fun decodeImageBitmap(bytes: ByteArray): androidx.compose.ui.graphics.ImageBitmap?

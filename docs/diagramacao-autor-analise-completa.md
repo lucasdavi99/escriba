@@ -443,7 +443,7 @@ Legenda: ✅ tem · 🟡 parcial · ❌ não tem.
 | Capa dura | ✅ | ❌ |
 | Capa de e-book | ✅ | ✅ frente da capa em JPEG, na proporção do livro ou 1600 × 2560 (Kindle) |
 | Marcadores | ✅ | ❌ |
-| Livro 3D | ✅ | ❌ |
+| Livro 3D | ✅ | 🟡 livro em perspectiva nas medidas reais (capa, lombada, contracapa, bloco de páginas), arrastar gira e o duplo clique volta; vitrine na Biblioteca; sem capa dura nem deslocar o livro |
 
 ## 4. Sugestão de ordem para o Escriba
 
@@ -460,8 +460,8 @@ A ordem pesa valor para quem publica e esforço no código atual (motor em `core
    - **Montar capa:** peças de texto arrastáveis, fundos em degradê e sentido do texto na lombada.
    - **Conferência:** capa × miolo (lombada salva *versus* atual) e contraste do texto.
    - **Saídas:** capa de e-book exportada da frente.
-5. **Livro 3D:** uma caixa com as três faces em Compose (`graphicsLayer` com `rotationY`), usando a mesma imagem
-   da prévia da capa. Também serve de vitrine na Biblioteca.
+5. ~~**Livro 3D**~~ entregue em 30/10/2026: perspectiva própria (homografia por face) na aba Capa e vitrine na
+   Biblioteca, gravada ao ver o livro 3D ou ao gerar o PDF da capa. Falta a versão capa dura.
 6. **Aberturas por capítulo e objetos livres** (texto e imagem com camadas), seguidos de imagem de página cheia
    e contorno de texto.
 7. **Começo e fim pelo guia,** com modelos próprios de texto.

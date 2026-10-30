@@ -12,6 +12,7 @@ import java.awt.Cursor
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
 import java.io.File
+import javax.imageio.ImageIO
 
 actual fun layoutMeasurer(): GlyphMeasurer = AwtGlyphMeasurer
 
@@ -49,3 +50,9 @@ actual fun copyToClipboard(text: String) {
 
 actual fun writeEbookCover(cover: CoverLayout, path: String, size: EbookCoverSize, images: (String) -> ByteArray?) =
     writeEbookJpeg(CoverPainter.paintEbook(cover, size, images), File(path))
+
+actual fun coverFacesPng(cover: CoverLayout, widthPx: Int, images: (String) -> ByteArray?): ByteArray =
+    java.io.ByteArrayOutputStream().also { ImageIO.write(CoverPainter.paintFaces(cover, widthPx, images), "png", it) }.toByteArray()
+
+actual fun decodeImageBitmap(bytes: ByteArray): ImageBitmap? =
+    runCatching { org.jetbrains.skia.Image.makeFromEncoded(bytes).toComposeImageBitmap() }.getOrNull()

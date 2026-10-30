@@ -227,6 +227,17 @@ internal object CoverPainter {
         return paintRegion(cover, region, scale, tw, th, false, images, BufferedImage.TYPE_INT_RGB)
     }
 
+    /** Contracapa, lombada e capa lado a lado, sem sangria nem orelhas: a pele do livro 3D. */
+    fun paintFaces(cover: CoverLayout, widthPx: Int, images: (String) -> ByteArray?): BufferedImage {
+        val geo = cover.geometry
+        val back = geo.zone(CoverPanel.Contracapa)!!
+        val front = geo.zone(CoverPanel.Capa)!!
+        val region = PtRect(mmToPt(back.xMm), 0f, mmToPt(front.endMm - back.xMm), geo.heightPt)
+        val scale = widthPx / region.width
+        val hPx = ceil(region.height * scale).toInt().coerceAtLeast(1)
+        return paintRegion(cover, region, scale, widthPx, hPx, false, images, BufferedImage.TYPE_INT_RGB)
+    }
+
     private fun paintRegion(
         cover: CoverLayout, region: PtRect, pxPerPt: Float, wPx: Int, hPx: Int, showGuides: Boolean,
         images: (String) -> ByteArray?, type: Int,

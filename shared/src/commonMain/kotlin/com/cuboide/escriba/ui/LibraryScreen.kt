@@ -43,6 +43,20 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.cuboide.escriba.app.EscribaController
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import com.cuboide.escriba.platform.decodeImageBitmap
+import com.cuboide.escriba.core.layout.CoverSnapshot
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.draw.shadow
+import androidx.compose.runtime.produceState
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.Image
 import com.cuboide.escriba.core.model.BookSummary
 import com.cuboide.escriba.platform.formatDateTime
 import com.cuboide.escriba.platform.revealInFileManager
@@ -103,7 +117,12 @@ private fun ContinueCard(c: EscribaController, summary: BookSummary) {
     val m = summary.manifest
     Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
-            BookCover(m.title, m.author, Modifier.width(120.dp).height(172.dp), compact = true)
+            val vitrine = rememberVitrine(c, summary)
+            if (vitrine != null) {
+                Book3D(vitrine.second, vitrine.first, Modifier.width(190.dp).height(200.dp), initialYaw = 30f, initialTilt = 14f)
+            } else {
+                BookCover(m.title, m.author, Modifier.width(120.dp).height(172.dp), compact = true)
+            }
             Spacer(Modifier.width(28.dp))
             Column(Modifier.weight(1f)) {
                 Text("CONTINUAR ESCREVENDO", style = MaterialTheme.typography.labelSmall, color = LocalPalette.current.accent)
@@ -142,7 +161,9 @@ private fun ShelfBook(c: EscribaController, summary: BookSummary) {
     val m = summary.manifest
     var menu by remember { mutableStateOf(false) }
     Column(Modifier.clip(RoundedCornerShape(12.dp)).clickable { c.openBook(summary.path) }.padding(4.dp)) {
-        BookCover(m.title, m.author, Modifier.fillMaxWidth().height(236.dp))
+        val vitrine = rememberVitrine(c, summary)
+        if (vitrine != null) FrontCover(vitrine.first, vitrine.second, Modifier.fillMaxWidth().height(236.dp))
+        else BookCover(m.title, m.author, Modifier.fillMaxWidth().height(236.dp))
         Spacer(Modifier.height(10.dp))
         Row(verticalAlignment = Alignment.Top) {
             Column(Modifier.weight(1f)) {
@@ -158,5 +179,31 @@ private fun ShelfBook(c: EscribaController, summary: BookSummary) {
                 }
             }
         }
+    }
+}
+
+/** Vitrine gravada na Diagramação › Capa (pele do livro 3D e medidas), ou `null` se o livro ainda não tem capa. */
+@Composable
+private fun rememberVitrine(c: EscribaController, summary: BookSummary): Pair<CoverSnapshot, ImageBitmap>? {
+    val state = produceState<Pair<CoverSnapshot, ImageBitmap>?>(null, summary.path, c.coverSnapshotVersion) {
+        value = withContext(Dispatchers.Default) {
+            c.coverSnapshot(summary.path)?.let { (snap, png) -> decodeImageBitmap(png)?.let { snap to it } }
+        }
+    }
+    return state.value
+}
+
+/** Só a frente da capa (a faixa da direita da pele), sem distorcer. */
+@Composable
+private fun FrontCover(book: CoverSnapshot, skin: ImageBitmap, modifier: Modifier) {
+    val pxPerMm = skin.width / (2 * book.trimWidthMm + book.spineMm)
+    val x = ((book.trimWidthMm + book.spineMm) * pxPerMm).toInt().coerceIn(0, skin.width - 1)
+    val painter = remember(skin, book) { BitmapPainter(skin, IntOffset(x, 0), IntSize(skin.width - x, skin.height)) }
+    Box(modifier, contentAlignment = Alignment.Center) {
+        Image(
+            painter, contentDescription = "Capa",
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.fillMaxHeight().aspectRatio(book.trimWidthMm / book.trimHeightMm).shadow(6.dp, RoundedCornerShape(3.dp)),
+        )
     }
 }

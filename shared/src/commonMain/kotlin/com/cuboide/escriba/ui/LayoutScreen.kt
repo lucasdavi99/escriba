@@ -33,6 +33,7 @@ import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.FitScreen
 import androidx.compose.material.icons.outlined.GridOn
+import androidx.compose.material.icons.outlined.ViewInAr
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material.icons.outlined.WarningAmber
@@ -88,6 +89,7 @@ import com.cuboide.escriba.core.layout.IsbnCheck
 import com.cuboide.escriba.core.layout.LaidOutBook
 import com.cuboide.escriba.core.layout.LaidPage
 import com.cuboide.escriba.core.layout.LayoutTheme
+import com.cuboide.escriba.core.layout.snapshot
 import com.cuboide.escriba.core.layout.ptToMm
 import com.cuboide.escriba.core.layout.SpineDirection
 import com.cuboide.escriba.core.layout.MmOffset
@@ -112,6 +114,7 @@ import com.cuboide.escriba.core.layout.PaperStock
 import com.cuboide.escriba.core.layout.TrimSize
 import com.cuboide.escriba.core.layout.checkIsbn
 import com.cuboide.escriba.platform.layoutFontFamilies
+import com.cuboide.escriba.platform.decodeImageBitmap
 import com.cuboide.escriba.platform.renderCover
 import com.cuboide.escriba.platform.renderLayoutPage
 import com.cuboide.escriba.platform.systemFontFamily
@@ -150,6 +153,7 @@ fun LayoutScreen(c: EscribaController) {
     // Página clicada: o painel mostra a mancha dela (global ou própria).
     var selectedPage by remember(book.path) { mutableStateOf<Int?>(null) }
     var tab by remember { mutableStateOf(LayoutTab.Miolo) }
+    var show3d by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     // A capa depende do miolo (lombada) e das próprias configurações; espera a digitação assentar.
@@ -186,6 +190,7 @@ fun LayoutScreen(c: EscribaController) {
                 Text(summary, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (tab == LayoutTab.Capa) {
+                IconAction(Icons.Outlined.ViewInAr, "Livro 3D: o livro pronto, nas medidas reais", onClick = { show3d = !show3d }, selected = show3d)
                 IconAction(Icons.Outlined.GridOn, "Mostrar corte, dobras e área segura", onClick = { guides = !guides }, selected = guides)
                 Spacer(Modifier.width(8.dp))
                 EbookCoverButton(enabled = laid != null && !c.layoutBusy) { c.exportEbookCover(it) }
@@ -217,7 +222,7 @@ fun LayoutScreen(c: EscribaController) {
         }
         c.layoutGate?.let { LayoutGateDialog(c, it) }
         if (tab == LayoutTab.Capa) {
-            CoverWorkspace(c, laid, cover, guides)
+            CoverWorkspace(c, laid, cover, guides, show3d)
             return@Column
         }
         Row(Modifier.fillMaxSize()) {
@@ -468,7 +473,7 @@ private fun TabSwitch(current: LayoutTab, onPick: (LayoutTab) -> Unit) {
 }
 
 @Composable
-private fun CoverWorkspace(c: EscribaController, laid: LaidOutBook?, cover: CoverLayout?, guides: Boolean) {
+private fun CoverWorkspace(c: EscribaController, laid: LaidOutBook?, cover: CoverLayout?, guides: Boolean, show3d: Boolean) {
     var dragMode by remember { mutableStateOf(CoverDragMode.Pecas) }
     Row(Modifier.fillMaxSize()) {
         CoverChecks(cover, Modifier.width(232.dp).fillMaxHeight())
@@ -477,6 +482,7 @@ private fun CoverWorkspace(c: EscribaController, laid: LaidOutBook?, cover: Cove
             when {
                 laid == null && c.layoutError != null -> EmptyState(Icons.Outlined.WarningAmber, "Não deu para diagramar", c.layoutError ?: "")
                 laid == null || cover == null -> EmptyState(Icons.Outlined.PictureAsPdf, "Montando a capa…", "A lombada sai do número de páginas do miolo.")
+                show3d -> Cover3DView(c, cover, minOf(maxWidth, maxHeight) - 48.dp)
                 else -> {
                     val g = cover.geometry
                     val wPt = g.widthPt + 2 * g.bleedPt
@@ -508,6 +514,29 @@ private fun CoverWorkspace(c: EscribaController, laid: LaidOutBook?, cover: Cove
         }
         VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         CoverSettingsPanel(c, laid, cover, dragMode, { dragMode = it }, Modifier.width(340.dp).fillMaxHeight())
+    }
+}
+
+/** O livro pronto em 3D; ao montar a pele, grava também a vitrine da Biblioteca. */
+@Composable
+private fun Cover3DView(c: EscribaController, cover: CoverLayout, side: androidx.compose.ui.unit.Dp) {
+    val skin by produceState<ImageBitmap?>(null, cover) {
+        delay(150)
+        val png = withContext(Dispatchers.Default) { c.coverSkinPng(cover) }
+        c.storeCoverSnapshot(cover, png)
+        value = withContext(Dispatchers.Default) { decodeImageBitmap(png) }
+    }
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        val image = skin
+        if (image == null) {
+            Box(Modifier.size(side), contentAlignment = Alignment.Center) { Text("Montando o livro 3D…", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        } else {
+            Book3D(image, cover.geometry.snapshot(), Modifier.size(side))
+        }
+        Text(
+            "Arraste para girar · duplo clique volta ao ângulo inicial · lombada de ${fmt(cover.geometry.spineMm)} mm",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

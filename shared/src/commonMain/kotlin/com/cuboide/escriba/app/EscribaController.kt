@@ -68,6 +68,7 @@ import com.cuboide.escriba.core.text.searchBook
 import com.cuboide.escriba.platform.buildDocx
 import com.cuboide.escriba.platform.chooseOpenFile
 import com.cuboide.escriba.platform.copyToClipboard
+import com.cuboide.escriba.platform.coverFacesPng
 import com.cuboide.escriba.platform.chooseSaveFile
 import com.cuboide.escriba.core.layout.CheckFix
 import com.cuboide.escriba.core.layout.CheckItem
@@ -77,6 +78,10 @@ import com.cuboide.escriba.core.layout.CoverExportRecord
 import com.cuboide.escriba.core.layout.CoverLayout
 import com.cuboide.escriba.core.layout.CoverOverlay
 import com.cuboide.escriba.core.layout.CoverPanel
+import com.cuboide.escriba.core.layout.CoverSnapshot
+import com.cuboide.escriba.core.layout.loadCoverSnapshot
+import com.cuboide.escriba.core.layout.saveCoverSnapshot
+import com.cuboide.escriba.core.layout.snapshot
 import com.cuboide.escriba.core.layout.EbookCoverSize
 import com.cuboide.escriba.core.layout.coverGeometry
 import com.cuboide.escriba.core.layout.ebookCoverPixels
@@ -1104,11 +1109,27 @@ class EscribaController(private val services: EscribaServices, private val scope
                 .onSuccess {
                     // Guarda a lombada desta capa: se o miolo mudar depois, a conferência avisa.
                     updateCover { c -> c.copy(lastExport = CoverExportRecord(laid.pages.size, cover.geometry.spineMm)) }
+                    scope.launch { storeCoverSnapshot(cover, withContext(Dispatchers.Default) { coverSkinPng(cover) }) }
                     message = "PDF da capa gerado: $target (lombada de ${formatMm(cover.geometry.spineMm)} mm)"
                 }
                 .onFailure { message = "Falha ao gerar o PDF da capa: ${it.message}" }
         }
     }
+
+    /** Muda quando uma vitrine é gravada, para a Biblioteca reler. */
+    var coverSnapshotVersion by mutableStateOf(0); private set
+
+    /** Pele do livro 3D desta capa, em PNG (pode demorar: rode fora da thread da tela). */
+    fun coverSkinPng(cover: CoverLayout): ByteArray = coverFacesPng(cover, COVER_SKIN_WIDTH_PX, ::layoutImage)
+
+    /** Grava a vitrine do livro aberto (a Biblioteca mostra o livro 3D com ela). */
+    fun storeCoverSnapshot(cover: CoverLayout, png: ByteArray) {
+        val b = book ?: return
+        runCatching { saveCoverSnapshot(services.fs, b.path, cover.geometry.snapshot(), png) }
+            .onSuccess { coverSnapshotVersion++ }
+    }
+
+    fun coverSnapshot(bookPath: String): Pair<CoverSnapshot, ByteArray>? = loadCoverSnapshot(services.fs, bookPath)
 
     /** Frente da capa em JPEG para lojas de e-book (não precisa de ISBN nem de miolo par). */
     fun exportEbookCover(size: EbookCoverSize) {
@@ -1180,5 +1201,7 @@ class EscribaController(private val services: EscribaServices, private val scope
         val IMAGE_EXTENSIONS = listOf("png", "jpg", "jpeg", "gif", "webp")
         /** Só formatos que o PDF da capa embute sem conversão. */
         val COVER_IMAGE_EXTENSIONS = listOf("png", "jpg", "jpeg")
+        /** Largura da pele do livro 3D (contracapa + lombada + capa). */
+        const val COVER_SKIN_WIDTH_PX = 2000
     }
 }
