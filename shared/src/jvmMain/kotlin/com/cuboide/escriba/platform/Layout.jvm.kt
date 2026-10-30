@@ -2,10 +2,15 @@ package com.cuboide.escriba.platform
 
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.input.pointer.PointerIcon
+import com.cuboide.escriba.core.layout.CoverLayout
+import com.cuboide.escriba.core.layout.EbookCoverSize
 import com.cuboide.escriba.core.layout.GlyphMeasurer
 import com.cuboide.escriba.core.layout.LaidOutBook
 import com.cuboide.escriba.core.layout.LaidPage
-import java.awt.Color
+import java.awt.Cursor
+import java.awt.Toolkit
+import java.awt.datatransfer.StringSelection
 import java.io.File
 
 actual fun layoutMeasurer(): GlyphMeasurer = AwtGlyphMeasurer
@@ -21,10 +26,26 @@ actual fun renderLayoutPage(
     showGuides: Boolean,
     images: (String) -> ByteArray?,
 ): ImageBitmap {
-    val tint = book.settings.page.paper.tint
-    val paper = Color(((tint shr 16) and 0xFF).toInt(), ((tint shr 8) and 0xFF).toInt(), (tint and 0xFF).toInt())
-    return LayoutPagePainter.paint(book, page, pxPerPt, paper, showGuides, images).toComposeImageBitmap()
+    return LayoutPagePainter.paint(book, page, pxPerPt, argbColor(book.settings.page.paper.tint), showGuides, images).toComposeImageBitmap()
 }
 
 actual fun writeLayoutPdf(book: LaidOutBook, path: String, images: (String) -> ByteArray?) =
     LayoutPdfWriter.write(book, File(path), images)
+
+actual fun renderCover(cover: CoverLayout, pxPerPt: Float, showGuides: Boolean, images: (String) -> ByteArray?): ImageBitmap =
+    CoverPainter.paint(cover, pxPerPt, showGuides, images).toComposeImageBitmap()
+
+actual fun writeCoverPdf(cover: CoverLayout, path: String, images: (String) -> ByteArray?) =
+    CoverPdfWriter.write(cover, File(path), images)
+
+actual fun resizePointerIcon(horizontal: Boolean): PointerIcon =
+    PointerIcon(Cursor(if (horizontal) Cursor.E_RESIZE_CURSOR else Cursor.N_RESIZE_CURSOR))
+
+actual fun movePointerIcon(): PointerIcon = PointerIcon(Cursor(Cursor.MOVE_CURSOR))
+
+actual fun copyToClipboard(text: String) {
+    runCatching { Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(text), null) }
+}
+
+actual fun writeEbookCover(cover: CoverLayout, path: String, size: EbookCoverSize, images: (String) -> ByteArray?) =
+    writeEbookJpeg(CoverPainter.paintEbook(cover, size, images), File(path))

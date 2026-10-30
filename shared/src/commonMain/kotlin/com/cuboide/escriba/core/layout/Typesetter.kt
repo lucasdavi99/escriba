@@ -10,6 +10,7 @@ import com.cuboide.escriba.core.model.ChapterMeta
 import com.cuboide.escriba.core.model.chapterNumbers
 import com.cuboide.escriba.core.text.BlockKind
 import com.cuboide.escriba.core.text.footnoteIds
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
@@ -49,8 +50,8 @@ fun interface ImageSizer {
 /** Elementos posicionados em pontos, a partir do canto superior esquerdo do formato final (sem sangria). */
 sealed interface PageItem
 
-/** Texto com a linha de base em [y]. */
-data class TextItem(val x: Float, val y: Float, val text: String, val font: FontSpec, val sizePt: Float, val trackingEm: Float = 0f) : PageItem
+/** Texto com a linha de base em [y]. [ink] é a fração de preto (1 = preto; 0,6 = cinza). */
+data class TextItem(val x: Float, val y: Float, val text: String, val font: FontSpec, val sizePt: Float, val trackingEm: Float = 0f, val ink: Float = 1f) : PageItem
 
 data class RuleItem(val x1: Float, val y1: Float, val x2: Float, val y2: Float, val widthPt: Float = 0.5f) : PageItem
 
@@ -70,12 +71,13 @@ enum class PageKind(val label: String) {
     Texto("Texto"),
 }
 
-data class LaidPage(val number: Int, val kind: PageKind, val chapterId: String?, val items: List<PageItem>) {
+/** [folio] é o número que a página mostra (ou mostraria): "7", "iii"… */
+data class LaidPage(val number: Int, val kind: PageKind, val chapterId: String?, val items: List<PageItem>, val folio: String = number.toString()) {
     /** Página ímpar = direita. */
     val recto: Boolean get() = number % 2 == 1
 }
 
-data class TocEntry(val chapterId: String, val label: String, val page: Int)
+data class TocEntry(val chapterId: String, val label: String, val page: Int, val folio: String = page.toString())
 
 data class LaidOutBook(
     val settings: LayoutSettings,
@@ -88,6 +90,8 @@ data class LaidOutBook(
     val titleFamily: String,
     val title: String = "",
     val author: String = "",
+    /** Página física do 1º capítulo (onde a numeração arábica recomeça quando há romanos). */
+    val bodyStart: Int = 1,
 ) {
     /** Estimativa da lombada pelo papel escolhido. */
     val spineMm: Float get() = pages.size * settings.page.paper.mmPerPage
@@ -111,11 +115,6 @@ class Typesetter(
     val heightPt = mmToPt(settings.page.trim.heightMm)
     private val page = settings.page
     private val body = settings.body
-    private val top = mmToPt(page.marginTopMm)
-    private val bottom = heightPt - mmToPt(page.marginBottomMm)
-    private val inner = mmToPt(page.marginInnerMm)
-    private val outer = mmToPt(page.marginOuterMm)
-    private val textW = widthPt - inner - outer
     private val size = body.sizePt
     private val lead = body.sizePt * body.leading
 
@@ -137,12 +136,21 @@ class Typesetter(
 
     fun typeset(source: TypesetSource): LaidOutBook {
         val first = Pass(source, tocPages = null).run()
-        val pass = Pass(source, tocPages = first.toc.associate { it.chapterId to it.page })
+        val pass = Pass(source, tocPages = first.toc.associate { it.chapterId to it.folio })
         val book = pass.run()
         return book.copy(warnings = (warnings + book.warnings).distinct())
     }
 
-    private fun left(pageNumber: Int) = if (pageNumber % 2 == 1) inner else outer
+    /** Mancha de uma página em pontos: a global ou a própria da página. */
+    private class PageGeom(val top: Float, val bottom: Float, val left: Float, val textW: Float, val bottomMarginPt: Float)
+
+    private fun geometry(pageNumber: Int): PageGeom {
+        val m = page.marginsFor(pageNumber)
+        val inner = mmToPt(m.innerMm)
+        val outer = mmToPt(m.outerMm)
+        val left = if (pageNumber % 2 == 1) inner else outer
+        return PageGeom(mmToPt(m.topMm), heightPt - mmToPt(m.bottomMm), left, widthPt - inner - outer, mmToPt(m.bottomMm))
+    }
 
     // ------------------------------------------------------------ Composição de parágrafos
 
@@ -275,10 +283,14 @@ class Typesetter(
         return items
     }
 
-    private fun breakLines(items: List<LbItem>, lineWidth: (Int) -> Float, justify: Boolean, fine: Boolean = body.fineComposition): List<ComposedLine> {
+    private fun breakLines(items: List<LbItem>, lineWidth: (Int) -> Float, justify: Boolean, fine: Boolean = body.fineComposition): List<ComposedLine> =
+        breakLinesAt(items, lineWidth, justify, fine).first
+
+    /** Linhas e as posições das quebras em [items] (para recompor o resto do parágrafo a partir de uma linha). */
+    private fun breakLinesAt(items: List<LbItem>, lineWidth: (Int) -> Float, justify: Boolean, fine: Boolean = body.fineComposition): Pair<List<ComposedLine>, List<Int>> {
         val breaks = (if (fine && justify) knuthPlassBreaks(items, lineWidth, 2.5f) ?: knuthPlassBreaks(items, lineWidth, 8f) else null)
             ?: greedyBreaks(items, lineWidth)
-        return composeLines(items, breaks, lineWidth, justify)
+        return composeLines(items, breaks, lineWidth, justify) to breaks
     }
 
     /** Linhas simples (títulos, créditos): sem justificar, sem hifenizar. */
@@ -294,7 +306,7 @@ class Typesetter(
 
     // ------------------------------------------------------------ Passagem
 
-    private inner class Pass(private val source: TypesetSource, private val tocPages: Map<String, Int>?) {
+    private inner class Pass(private val source: TypesetSource, private val tocPages: Map<String, String>?) {
         val pages = ArrayList<LaidPage>()
         val toc = ArrayList<TocEntry>()
         val passWarnings = ArrayList<String>()
@@ -314,10 +326,22 @@ class Typesetter(
         val noteSize = size * 0.8f
         val noteLead = noteSize * 1.3f
         val noteGap = noteLead * 1.2f
-        private val noteCache = HashMap<String, List<ComposedLine>>()
+        private val noteCache = HashMap<Pair<String, Float>, List<ComposedLine>>()
 
         val number get() = pages.size + 1
-        val x0 get() = left(number)
+
+        // Mancha da página corrente (cada página pode ter a sua).
+        private var geomPage = -1
+        private var geomCache: PageGeom? = null
+        val geom: PageGeom
+            get() {
+                if (geomPage != number) { geomCache = geometry(number); geomPage = number }
+                return geomCache!!
+            }
+        val top get() = geom.top
+        val bottom get() = geom.bottom
+        val textW get() = geom.textW
+        val x0 get() = geom.left
 
         fun run(): LaidOutBook {
             frontMatter()
@@ -333,13 +357,19 @@ class Typesetter(
                 blankPage()
                 passWarnings += "Uma página em branco foi acrescentada no fim: livro impresso fecha em número par."
             }
-            return LaidOutBook(settings, widthPt, heightPt, pages.toList(), toc.toList(), passWarnings, bodyFamily, titleFamily, source.title, source.author)
+            return LaidOutBook(settings, widthPt, heightPt, pages.toList(), toc.toList(), passWarnings, bodyFamily, titleFamily, source.title, source.author, bodyStart ?: 1)
         }
 
         // -------------------------------------------------------- Páginas
 
+        /** Página do 1º capítulo: a partir dela a numeração é arábica. */
+        var bodyStart: Int? = null
+
+        fun folioOf(n: Int) = settings.heads.folioLabel(n, bodyStart)
+
         fun openPage(k: PageKind, id: String? = chapterId, title: String = chapterTitle) {
             if (open) closePage()
+            if (k == PageKind.Abertura && bodyStart == null) bodyStart = number
             items = ArrayList()
             kind = k
             chapterId = id
@@ -353,9 +383,10 @@ class Typesetter(
 
         fun closePage() {
             if (!open) return
-            if (kind == PageKind.Texto) furniture()
+            if (kind == PageKind.Texto) furniture(opening = false)
+            if (kind == PageKind.Abertura) furniture(opening = true)
             if (pageNotes.isNotEmpty()) placeNotes()
-            pages += LaidPage(number, kind, chapterId, items.toList())
+            pages += LaidPage(number, kind, chapterId, items.toList(), folioOf(number))
             open = false
         }
 
@@ -375,35 +406,53 @@ class Typesetter(
 
         fun hasContent() = y > top + 0.5f
 
-        /** Cabeçalho e número da página. */
-        fun furniture() {
+        /** Cabeçalho e número da página; na abertura de capítulo seguem as regras próprias dela. */
+        fun furniture(opening: Boolean) {
             val heads = settings.heads
             val recto = number % 2 == 1
-            val content = if (recto) heads.recto else heads.verso
-            val text = when (content) {
+            val headBaseline = top - heads.sizePt * 1.8f - mmToPt(heads.raiseMm)
+            val folio = folioOf(number)
+            val folioSize = heads.sizePt + 0.5f
+            val fw = measurer.width(folio, regular, folioSize)
+            val showFolio = number !in heads.hiddenFolios &&
+                when (heads.folioPages) {
+                    FolioPages.Todas -> true
+                    FolioPages.Impares -> recto
+                    FolioPages.Pares -> !recto
+                } &&
+                !(opening && heads.openingFolio == OpeningFolio.Nenhum)
+            val folioPos = if (opening && heads.openingFolio == OpeningFolio.Pe) FolioPosition.RodapeCentro else heads.folio
+
+            val showHead = number !in heads.hiddenHeads && (!opening || heads.onOpening)
+            val own = chapterId?.let { heads.chapterHeads[it] }?.let { if (recto) it.recto else it.verso }?.takeIf { it.isNotBlank() }
+            val text = own ?: when (if (recto) heads.recto else heads.verso) {
                 HeadContent.Nada -> ""
                 HeadContent.Livro -> source.title
                 HeadContent.Autor -> source.author
                 HeadContent.Capitulo -> chapterTitle
             }
-            val headBaseline = top - heads.sizePt * 1.8f
-            val tracking = if (heads.uppercase) 0.12f else 0f
-            if (text.isNotBlank()) {
+            if (showHead && text.isNotBlank()) {
+                val tracking = if (heads.uppercase) 0.12f else 0f
                 val shown = if (heads.uppercase) text.uppercase() else text
                 val font = regular.copy(italic = !heads.uppercase)
                 val w = measurer.width(shown, font, heads.sizePt, tracking)
-                items += TextItem(x0 + (textW - w) / 2f, headBaseline, shown, font, heads.sizePt, tracking)
+                // O número no alto, do lado de fora, empurra o cabeçalho para dentro.
+                val folioGap = if (showFolio && folioPos == FolioPosition.TopoExterno) fw + heads.sizePt * 1.5f else 0f
+                val outerX = if (recto) x0 + textW - w - folioGap else x0 + folioGap
+                val innerX = if (recto) x0 else x0 + textW - w
+                val x = when (heads.position) {
+                    HeadPosition.Centro -> x0 + (textW - w) / 2f
+                    HeadPosition.Externo -> outerX
+                    HeadPosition.Interno -> innerX
+                }
+                items += TextItem(x, headBaseline, shown, font, heads.sizePt, tracking, heads.ink.ink)
             }
-            val folio = number.toString()
-            val fw = measurer.width(folio, regular, heads.sizePt + 0.5f)
-            val folioSize = heads.sizePt + 0.5f
-            when (heads.folio) {
-                FolioPosition.RodapeCentro ->
-                    items += TextItem(x0 + (textW - fw) / 2f, heightPt - mmToPt(page.marginBottomMm) * 0.45f, folio, regular, folioSize)
-                FolioPosition.RodapeExterno ->
-                    items += TextItem(if (recto) x0 + textW - fw else x0, heightPt - mmToPt(page.marginBottomMm) * 0.45f, folio, regular, folioSize)
-                FolioPosition.TopoExterno ->
-                    items += TextItem(if (recto) x0 + textW - fw else x0, headBaseline, folio, regular, folioSize)
+            if (!showFolio) return
+            val footBaseline = heightPt - geom.bottomMarginPt * 0.45f
+            when (folioPos) {
+                FolioPosition.RodapeCentro -> items += TextItem(x0 + (textW - fw) / 2f, footBaseline, folio, regular, folioSize)
+                FolioPosition.RodapeExterno -> items += TextItem(if (recto) x0 + textW - fw else x0, footBaseline, folio, regular, folioSize)
+                FolioPosition.TopoExterno -> items += TextItem(if (recto) x0 + textW - fw else x0, headBaseline, folio, regular, folioSize)
                 FolioPosition.Nenhum -> Unit
             }
         }
@@ -426,7 +475,7 @@ class Typesetter(
             }
         }
 
-        fun noteLines(id: String): List<ComposedLine> = noteCache.getOrPut(id) {
+        fun noteLines(id: String): List<ComposedLine> = noteCache.getOrPut(id to textW) {
             val n = noteNumbers[id]?.toString() ?: "?"
             val spans = listOf(InlineSpan("$n  ")) + parseInline(noteTexts[id].orEmpty())
             breakLines(paragraphItems(spans, noteSize, bodyFamily, justify = true), { textW }, justify = true)
@@ -446,7 +495,9 @@ class Typesetter(
             xOffset: (Int) -> Float = { 0f },
             width: (Int) -> Float = { textW },
             minLines: Int = body.widowOrphanLines,
+            recompose: Recompose? = null,
         ) {
+            @Suppress("NAME_SHADOWING") var lines = lines
             var idx = 0
             while (idx < lines.size) {
                 if (!open) openPage(PageKind.Texto)
@@ -496,8 +547,43 @@ class Typesetter(
                 if (idx < lines.size) {
                     closePage()
                     openPage(PageKind.Texto)
+                    // A página nova tem outra largura de mancha: recompõe o resto do parágrafo nela.
+                    if (recompose != null && abs(recompose.width - textW) > 0.01f) lines = lines.take(idx) + recompose.from(idx)
                 }
             }
+        }
+
+        /**
+         * Parágrafo que acompanha a largura da mancha: se ele passar para uma página com mancha diferente, o resto é
+         * quebrado de novo na largura nova. [narrow] desconta da largura (recuo de citação, marcador de lista).
+         */
+        inner class Recompose(private var items: List<LbItem>, private val justify: Boolean, private val narrow: Float) {
+            var width = 0f
+                private set
+            private var breaks: List<Int> = emptyList()
+            private var offset = 0
+
+            fun first(): List<ComposedLine> = compose()
+
+            fun from(lineIndex: Int): List<ComposedLine> {
+                val local = lineIndex - offset
+                if (local > 0) items = items.subList(breaks[local - 1] + 1, items.size)
+                offset = lineIndex
+                return compose()
+            }
+
+            private fun compose(): List<ComposedLine> {
+                width = textW
+                val w = width - narrow
+                val (lines, b) = breakLinesAt(items, { w }, justify)
+                breaks = b
+                return lines
+            }
+        }
+
+        fun flowParagraph(items: List<LbItem>, justify: Boolean, lineHeight: Float, sizePt: Float, align: Align, narrow: Float = 0f, inset: Float = 0f) {
+            val r = Recompose(items, justify, narrow)
+            placeLines(r.first(), lineHeight, sizePt, align, xOffset = { inset }, width = { textW - narrow }, recompose = r)
         }
 
         fun ensureSpace(height: Float) {
@@ -570,7 +656,7 @@ class Typesetter(
         fun shortPage(ch: TypesetChapter) {
             startOn(OpeningSide.Direita)
             openPage(PageKind.Dedicatoria, ch.id, ch.title)
-            toc += TocEntry(ch.id, ch.title, number)
+            toc += TocEntry(ch.id, ch.title, number, folioOf(number))
             y = heightPt * 0.3f
             val blockW = textW * 0.72f
             for (p in ch.paragraphs) {
@@ -592,7 +678,7 @@ class Typesetter(
             val dot = measurer.width(".", regular, size)
             for (ch in entries) {
                 val label = ch.number?.let { "$it  ${ch.title}" } ?: ch.title
-                val pageNo = tocPages?.get(ch.id)?.toString() ?: "000"
+                val pageNo = tocPages?.get(ch.id) ?: "000"
                 if (y + lead > availableBottom()) openPage(PageKind.Sumario, null, "Sumário")
                 val numW = measurer.width(pageNo, regular, size)
                 val lines = simpleLines(label, regular, size, textW - numW - size * 2f)
@@ -618,7 +704,7 @@ class Typesetter(
             val opening = settings.opening
             startOn(opening.side)
             openPage(PageKind.Abertura, ch.id, ch.title)
-            toc += TocEntry(ch.id, ch.title, number)
+            toc += TocEntry(ch.id, ch.title, number, folioOf(number))
             noteNumbers = footnoteIds(ch.paragraphs.joinToString("\n")).withIndex().associate { (i, id) -> id to i + 1 }
             noteTexts = ch.footnotes
             noteCache.clear()
@@ -678,20 +764,18 @@ class Typesetter(
                     BlockKind.Quote -> {
                         val qs = size * 0.93f
                         val pad = size * 1.5f
-                        val lines = breakLines(paragraphItems(parseInline(block.content), qs, bodyFamily, justify = true, noteNumbers = noteNumbers), { textW - 2 * pad }, justify = body.align == BodyAlign.Justificado)
                         if (hasContent()) y += lead * 0.5f
-                        placeLines(lines, lead, qs, Align.Justify, xOffset = { pad }, width = { textW - 2 * pad })
+                        flowParagraph(paragraphItems(parseInline(block.content), qs, bodyFamily, justify = true, noteNumbers = noteNumbers), body.align == BodyAlign.Justificado, lead, qs, Align.Justify, narrow = 2 * pad, inset = pad)
                         y += lead * 0.5f
                         noIndentNext = body.firstParagraphNoIndent
                     }
                     BlockKind.ListItem -> {
                         val hang = size * 1.4f
-                        val lines = breakLines(paragraphItems(parseInline(block.content), size, bodyFamily, justify = true, noteNumbers = noteNumbers), { textW - hang }, justify = body.align == BodyAlign.Justificado)
                         if (!open) openPage(PageKind.Texto)
                         ensureSpace(lead)
                         val bulletX = x0 + size * 0.4f
                         items += TextItem(bulletX, baselineIn(y, size, lead), "•", regular, size)
-                        placeLines(lines, lead, size, Align.Justify, xOffset = { hang }, width = { textW - hang })
+                        flowParagraph(paragraphItems(parseInline(block.content), size, bodyFamily, justify = true, noteNumbers = noteNumbers), body.align == BodyAlign.Justificado, lead, size, Align.Justify, narrow = hang, inset = hang)
                         noIndentNext = false
                     }
                     BlockKind.Paragraph -> {
@@ -705,8 +789,7 @@ class Typesetter(
                         }
                         dropCapPending = false
                         val indent = if (centered || noIndentNext) 0f else size * body.indentEm
-                        val lines = breakLines(paragraphItems(spans, size, bodyFamily, firstIndent = indent, justify = justify, noteNumbers = noteNumbers), { textW }, justify)
-                        placeLines(lines, lead, size, if (centered) Align.Center else Align.Justify)
+                        flowParagraph(paragraphItems(spans, size, bodyFamily, firstIndent = indent, justify = justify, noteNumbers = noteNumbers), justify, lead, size, if (centered) Align.Center else Align.Justify)
                         y += lead * body.paragraphSpacingLines
                         noIndentNext = false
                     }

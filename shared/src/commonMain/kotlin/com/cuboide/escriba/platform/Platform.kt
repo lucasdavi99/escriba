@@ -56,3 +56,31 @@ expect fun renderLayoutPage(
 
 /** Grava o PDF do miolo em [path]. */
 expect fun writeLayoutPdf(book: com.cuboide.escriba.core.layout.LaidOutBook, path: String, images: (String) -> ByteArray?)
+
+/** A capa aberta como imagem, para a prévia (inclui a sangria). [pxPerPt] = pixels por ponto tipográfico. */
+expect fun renderCover(
+    cover: com.cuboide.escriba.core.layout.CoverLayout,
+    pxPerPt: Float,
+    showGuides: Boolean,
+    images: (String) -> ByteArray?,
+): androidx.compose.ui.graphics.ImageBitmap
+
+/** Grava o PDF da capa aberta em [path]. */
+expect fun writeCoverPdf(cover: com.cuboide.escriba.core.layout.CoverLayout, path: String, images: (String) -> ByteArray?)
+
+/** Cursor para arrastar uma margem: seta dupla horizontal ([horizontal]) ou vertical. */
+expect fun resizePointerIcon(horizontal: Boolean): androidx.compose.ui.input.pointer.PointerIcon
+
+/** Cursor para mover a mancha inteira. */
+expect fun movePointerIcon(): androidx.compose.ui.input.pointer.PointerIcon
+
+/** Copia texto para a área de transferência do sistema. */
+expect fun copyToClipboard(text: String)
+
+/** Grava a frente da capa como JPEG para lojas de e-book. */
+expect fun writeEbookCover(
+    cover: com.cuboide.escriba.core.layout.CoverLayout,
+    path: String,
+    size: com.cuboide.escriba.core.layout.EbookCoverSize,
+    images: (String) -> ByteArray?,
+)

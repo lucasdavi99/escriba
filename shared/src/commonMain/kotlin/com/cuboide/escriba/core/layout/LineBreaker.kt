@@ -212,9 +212,11 @@ fun composeLines(items: List<LbItem>, breaks: List<Int>, lineWidth: (Int) -> Flo
         }
         if (hyphen != null) natural += hyphen.width
         val ratio = when {
-            !justify || forced -> 0f
-            natural < target && stretch > 0f -> ((target - natural) / stretch).coerceAtMost(4f)
+            !justify -> 0f
+            // Inclusive a última linha: a composição fina pode tê-la apertado para caber, e sem o aperto ela estoura a margem.
             natural > target && shrink > 0f -> ((target - natural) / shrink).coerceAtLeast(-1f)
+            forced -> 0f
+            natural < target && stretch > 0f -> ((target - natural) / stretch).coerceAtMost(4f)
             else -> 0f
         }
         val placed = ArrayList<PlacedRun>()

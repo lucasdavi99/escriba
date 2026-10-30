@@ -11,6 +11,8 @@ import org.apache.fontbox.ttf.TrueTypeCollection
 import org.apache.pdfbox.pdmodel.PDDocument
 import org.apache.pdfbox.pdmodel.PDPage
 import org.apache.pdfbox.pdmodel.PDPageContentStream
+import org.apache.pdfbox.pdmodel.common.PDPageLabelRange
+import org.apache.pdfbox.pdmodel.common.PDPageLabels
 import org.apache.pdfbox.pdmodel.common.PDRectangle
 import org.apache.pdfbox.pdmodel.font.PDFont
 import org.apache.pdfbox.pdmodel.font.PDType0Font
@@ -41,17 +43,9 @@ internal object LayoutPdfWriter {
         val off = bleed + marks
         val w = book.widthPt
         val h = book.heightPt
-        val collections = ArrayList<TrueTypeCollection>()
+        val fonts = PdfFontCache()
         PDDocument().use { doc ->
-            val fonts = HashMap<FontFace, PDFont>()
-            fun pdFont(face: FontFace): PDFont = fonts.getOrPut(face) {
-                if (face.isCollection) {
-                    val ttc = TrueTypeCollection(face.file).also { collections += it }
-                    PDType0Font.load(doc, ttc.getFontByName(face.postScriptName), true)
-                } else {
-                    PDType0Font.load(doc, face.file)
-                }
-            }
+            fun pdFont(face: FontFace): PDFont = fonts.font(doc, face)
             val pdImages = HashMap<String, PDImageXObject?>()
             val pdPages = ArrayList<PDPage>()
             for (laid in book.pages) {
@@ -65,6 +59,8 @@ internal object LayoutPdfWriter {
                     for (item in laid.items) when (item) {
                         is TextItem -> {
                             val face = FontCatalog.face(item.font) ?: continue
+                            // Cinza do cabeçalho: tom de preto (0 = preto, 1 = branco).
+                            cs.setNonStrokingColor(1f - item.ink.coerceIn(0f, 1f))
                             var dx = 0f
                             for ((seg, f) in coverageRuns(item.text, face)) {
                                 val font = pdFont(f)
@@ -84,6 +80,7 @@ internal object LayoutPdfWriter {
                             cs.stroke()
                         }
                         is DiamondItem -> {
+                            cs.setNonStrokingColor(0f)
                             cs.moveTo(off + item.cx, py(item.cy - item.radius))
                             cs.lineTo(off + item.cx + item.radius, py(item.cy))
                             cs.lineTo(off + item.cx, py(item.cy + item.radius))
@@ -99,6 +96,16 @@ internal object LayoutPdfWriter {
                         }
                     }
                     if (setup.cropMarks) cropMarks(cs, off, bleed, w, h)
+                }
+            }
+            // Rótulos de página: o leitor de PDF mostra "iii" e "1" como o livro impresso.
+            doc.documentCatalog.pageLabels = PDPageLabels(doc).apply {
+                val heads = book.settings.heads
+                if (heads.romanFrontMatter && book.bodyStart > 1) {
+                    setLabelItem(0, PDPageLabelRange().apply { style = PDPageLabelRange.STYLE_ROMAN_LOWER; start = 1 })
+                    setLabelItem(book.bodyStart - 1, PDPageLabelRange().apply { style = PDPageLabelRange.STYLE_DECIMAL; start = heads.startAt.coerceAtLeast(1) })
+                } else {
+                    setLabelItem(0, PDPageLabelRange().apply { style = PDPageLabelRange.STYLE_DECIMAL; start = heads.startAt.coerceAtLeast(1) })
                 }
             }
             // Marcadores (índice lateral do leitor de PDF) por capítulo.
@@ -122,19 +129,7 @@ internal object LayoutPdfWriter {
             }
             doc.save(target)
         }
-        collections.forEach { runCatching { it.close() } }
-    }
-
-    /** Escreve o texto; caracteres que a fonte não codifica viram "?" em vez de abortar o PDF. */
-    private fun showSafely(cs: PDPageContentStream, font: PDFont, text: String) {
-        try {
-            cs.showText(text)
-        } catch (_: IllegalArgumentException) {
-            val safe = buildString {
-                text.forEach { ch -> append(if (runCatching { font.encode(ch.toString()) }.isSuccess) ch else '?') }
-            }
-            runCatching { cs.showText(safe) }
-        }
+        fonts.close()
     }
 
     private fun cropMarks(cs: PDPageContentStream, off: Float, bleed: Float, w: Float, h: Float) {
@@ -155,10 +150,46 @@ internal object LayoutPdfWriter {
     }
 }
 
+/** Fontes do PDF carregadas uma vez por face (subconjunto embutido); fecha as coleções .ttc no fim. */
+internal class PdfFontCache : AutoCloseable {
+    private val fonts = HashMap<FontFace, PDFont>()
+    private val collections = ArrayList<TrueTypeCollection>()
+
+    fun font(doc: PDDocument, face: FontFace): PDFont = fonts.getOrPut(face) {
+        if (face.isCollection) {
+            val ttc = TrueTypeCollection(face.file).also { collections += it }
+            PDType0Font.load(doc, ttc.getFontByName(face.postScriptName), true)
+        } else {
+            PDType0Font.load(doc, face.file)
+        }
+    }
+
+    override fun close() = collections.forEach { runCatching { it.close() } }
+}
+
+/** Escreve o texto; caracteres que a fonte não codifica viram "?" em vez de abortar o PDF. */
+internal fun showSafely(cs: PDPageContentStream, font: PDFont, text: String) {
+    try {
+        cs.showText(text)
+    } catch (_: IllegalArgumentException) {
+        val safe = buildString {
+            text.forEach { ch -> append(if (runCatching { font.encode(ch.toString()) }.isSuccess) ch else '?') }
+        }
+        runCatching { cs.showText(safe) }
+    }
+}
+
+/** Imagens do livro já decodificadas para a prévia (miolo e capa). */
+internal object PreviewImages {
+    private val cache = java.util.concurrent.ConcurrentHashMap<String, BufferedImage>()
+
+    fun get(path: String, images: (String) -> ByteArray?): BufferedImage? = cache[path] ?: images(path)?.let { bytes ->
+        runCatching { ImageIO.read(ByteArrayInputStream(bytes)) }.getOrNull()
+    }?.also { cache[path] = it }
+}
+
 /** Desenha uma página do layout numa imagem, com as mesmas fontes e posições do PDF. */
 internal object LayoutPagePainter {
-    private val imageCache = java.util.concurrent.ConcurrentHashMap<String, BufferedImage>()
-
     fun paint(book: LaidOutBook, page: LaidPage, pxPerPt: Float, paper: Color, showGuides: Boolean, images: (String) -> ByteArray?): BufferedImage {
         val wPx = ceil(book.widthPt * pxPerPt).toInt().coerceAtLeast(1)
         val hPx = ceil(book.heightPt * pxPerPt).toInt().coerceAtLeast(1)
@@ -174,19 +205,20 @@ internal object LayoutPagePainter {
             g.fillRect(0, 0, wPx, hPx)
             g.scale(pxPerPt.toDouble(), pxPerPt.toDouble())
             if (showGuides) {
-                val s = book.settings.page
-                val inner = mmToPt(s.marginInnerMm)
-                val outer = mmToPt(s.marginOuterMm)
+                val m = book.settings.page.marginsFor(page.number)
+                val inner = mmToPt(m.innerMm)
+                val outer = mmToPt(m.outerMm)
                 val left = if (page.recto) inner else outer
                 g.color = Color(120, 150, 200, 110)
                 g.stroke = BasicStroke(0.4f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 1f, floatArrayOf(2f, 2f), 0f)
-                g.draw(Rectangle2D.Float(left, mmToPt(s.marginTopMm), book.widthPt - inner - outer, book.heightPt - mmToPt(s.marginTopMm) - mmToPt(s.marginBottomMm)))
+                g.draw(Rectangle2D.Float(left, mmToPt(m.topMm), book.widthPt - inner - outer, book.heightPt - mmToPt(m.topMm) - mmToPt(m.bottomMm)))
             }
             val ink = Color(0x1C, 0x1A, 0x18)
             g.color = ink
             for (item in page.items) when (item) {
                 is TextItem -> {
                     val face = FontCatalog.face(item.font) ?: continue
+                    g.color = if (item.ink >= 1f) ink else mix(ink, paper, item.ink)
                     var dx = 0f
                     for ((seg, f) in coverageRuns(item.text, face)) {
                         var font = f.awt.deriveFont(item.sizePt)
@@ -197,10 +229,12 @@ internal object LayoutPagePainter {
                     }
                 }
                 is RuleItem -> {
+                    g.color = ink
                     g.stroke = BasicStroke(item.widthPt)
                     g.draw(Line2D.Float(item.x1, item.y1, item.x2, item.y2))
                 }
                 is DiamondItem -> {
+                    g.color = ink
                     val p = Path2D.Float()
                     p.moveTo(item.cx, item.cy - item.radius)
                     p.lineTo(item.cx + item.radius, item.cy)
@@ -210,9 +244,7 @@ internal object LayoutPagePainter {
                     g.fill(p)
                 }
                 is ImageItem -> {
-                    val bi = imageCache[item.path] ?: images(item.path)?.let { bytes ->
-                        runCatching { ImageIO.read(ByteArrayInputStream(bytes)) }.getOrNull()
-                    }?.also { imageCache[item.path] = it }
+                    val bi = PreviewImages.get(item.path, images)
                     if (bi != null) g.drawImage(bi, item.x.toInt(), item.y.toInt(), item.width.toInt(), item.height.toInt(), null)
                     else {
                         g.color = Color(0, 0, 0, 40)
@@ -226,6 +258,13 @@ internal object LayoutPagePainter {
         }
         return img
     }
+}
+
+/** [a] com [amount] de força sobre [b] (1 = só [a]). */
+private fun mix(a: Color, b: Color, amount: Float): Color {
+    val t = amount.coerceIn(0f, 1f)
+    fun ch(x: Int, y: Int) = (x * t + y * (1f - t)).toInt().coerceIn(0, 255)
+    return Color(ch(a.red, b.red), ch(a.green, b.green), ch(a.blue, b.blue))
 }
 
 internal fun imageSizeOf(bytes: ByteArray): Pair<Int, Int>? = runCatching {

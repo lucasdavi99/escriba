@@ -19,6 +19,11 @@ dependencies {
     testImplementation(compose.desktop.uiTestJUnit4)
 }
 
+// `-Pescriba.layoutPreviewDir=<pasta>` grava capturas das telas de diagramação dos testes para conferência visual.
+tasks.withType<Test>().configureEach {
+    providers.gradleProperty("escriba.layoutPreviewDir").orNull?.let { systemProperty("escriba.layoutPreviewDir", it) }
+}
+
 compose.desktop {
     application {
         mainClass = "com.cuboide.escriba.MainKt"

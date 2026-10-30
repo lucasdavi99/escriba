@@ -55,7 +55,79 @@ data class PageSetup(
     /** Margem do lado da lombada (medianiz). */
     val marginInnerMm: Float = 20f,
     val marginOuterMm: Float = 15f,
-)
+    /** Mancha própria de algumas páginas (chave = número da página); as outras seguem as margens acima. */
+    val pageMargins: Map<Int, PageMargins> = emptyMap(),
+) {
+    val globalMargins: PageMargins get() = PageMargins(marginTopMm, marginBottomMm, marginInnerMm, marginOuterMm)
+
+    fun marginsFor(pageNumber: Int): PageMargins = pageMargins[pageNumber] ?: globalMargins
+
+    fun hasOwnMargins(pageNumber: Int) = pageNumber in pageMargins
+
+    /** Muda uma margem: na mancha própria de [pageNumber], se ela tiver uma; senão na global (o livro inteiro). */
+    fun withMargin(pageNumber: Int?, edge: MarginEdge, mm: Float): PageSetup {
+        val own = pageNumber?.let { pageMargins[it] }
+        return if (own != null) copy(pageMargins = pageMargins + (pageNumber to own.with(edge, mm).fitIn(trim)))
+        else withGlobal(globalMargins.with(edge, mm).fitIn(trim))
+    }
+
+    /** Dá à página uma mancha própria, partindo da que ela usa hoje. */
+    fun ownMargins(pageNumber: Int, margins: PageMargins = marginsFor(pageNumber)) =
+        copy(pageMargins = pageMargins + (pageNumber to margins.fitIn(trim)))
+
+    fun followGlobal(pageNumber: Int) = copy(pageMargins = pageMargins - pageNumber)
+
+    /** Grava a mancha inteira de uma página: na própria, se ela tiver uma; senão no livro inteiro. */
+    fun withBox(pageNumber: Int, margins: PageMargins): PageSetup =
+        if (hasOwnMargins(pageNumber)) ownMargins(pageNumber, margins) else withGlobal(margins.fitIn(trim))
+
+    /** A mancha da página vira a do livro inteiro, e as exceções por página somem. */
+    fun makeGlobal(pageNumber: Int) = withGlobal(marginsFor(pageNumber)).copy(pageMargins = emptyMap())
+
+    private fun withGlobal(m: PageMargins) =
+        copy(marginTopMm = m.topMm, marginBottomMm = m.bottomMm, marginInnerMm = m.innerMm, marginOuterMm = m.outerMm)
+}
+
+enum class MarginEdge(val label: String) { Top("Superior"), Bottom("Inferior"), Inner("Interna"), Outer("Externa") }
+
+/** Margens da mancha de uma página, em mm. Interna = lado da lombada. */
+@Serializable
+data class PageMargins(val topMm: Float, val bottomMm: Float, val innerMm: Float, val outerMm: Float) {
+    fun get(edge: MarginEdge) = when (edge) {
+        MarginEdge.Top -> topMm
+        MarginEdge.Bottom -> bottomMm
+        MarginEdge.Inner -> innerMm
+        MarginEdge.Outer -> outerMm
+    }
+
+    fun with(edge: MarginEdge, mm: Float) = when (edge) {
+        MarginEdge.Top -> copy(topMm = mm)
+        MarginEdge.Bottom -> copy(bottomMm = mm)
+        MarginEdge.Inner -> copy(innerMm = mm)
+        MarginEdge.Outer -> copy(outerMm = mm)
+    }
+
+    /** Cada margem entre [MIN_MARGIN_MM] e [MAX_MARGIN_MM], arredondada a 0,5 mm, deixando ao menos [MIN_TEXT_MM] de mancha. */
+    fun fitIn(trim: TrimSize): PageMargins {
+        fun clean(v: Float) = (kotlin.math.round(v * 2f) / 2f).coerceIn(MIN_MARGIN_MM, MAX_MARGIN_MM)
+        var m = PageMargins(clean(topMm), clean(bottomMm), clean(innerMm), clean(outerMm))
+        val wExcess = m.innerMm + m.outerMm - (trim.widthMm - MIN_TEXT_MM)
+        if (wExcess > 0f) m = m.copy(outerMm = (m.outerMm - wExcess).coerceAtLeast(MIN_MARGIN_MM))
+        val hExcess = m.topMm + m.bottomMm - (trim.heightMm - MIN_TEXT_MM)
+        if (hExcess > 0f) m = m.copy(bottomMm = (m.bottomMm - hExcess).coerceAtLeast(MIN_MARGIN_MM))
+        return m
+    }
+
+    /** Espelho exato: mesmas margens (interna e externa trocam de lado sozinhas entre páginas pares e ímpares). */
+    fun sameAs(other: PageMargins, toleranceMm: Float = 0.05f) =
+        kotlin.math.abs(topMm - other.topMm) < toleranceMm && kotlin.math.abs(bottomMm - other.bottomMm) < toleranceMm &&
+            kotlin.math.abs(innerMm - other.innerMm) < toleranceMm && kotlin.math.abs(outerMm - other.outerMm) < toleranceMm
+}
+
+const val MIN_MARGIN_MM = 5f
+const val MAX_MARGIN_MM = 60f
+/** Largura e altura mínimas da mancha. */
+const val MIN_TEXT_MM = 40f
 
 @Serializable
 enum class BodyAlign(val label: String) { Justificado("Justificado"), Esquerda("Esquerda") }
@@ -119,6 +191,23 @@ enum class FolioPosition(val label: String) {
 }
 
 @Serializable
+enum class HeadPosition(val label: String) { Externo("Canto de fora"), Centro("Centro"), Interno("Canto de dentro") }
+
+/** Tom do cabeçalho: [ink] é a fração de preto (1 = preto do texto). */
+@Serializable
+enum class HeadInk(val label: String, val ink: Float) { Preta("Preta", 1f), Escura("Cinza escuro", 0.8f), Cinza("Cinza", 0.6f) }
+
+@Serializable
+enum class FolioPages(val label: String) { Todas("Todas as páginas"), Impares("Só nas ímpares (direita)"), Pares("Só nas pares (esquerda)") }
+
+@Serializable
+enum class OpeningFolio(val label: String) { Nenhum("Sem número"), Pe("Número centrado no pé"), Normal("Como nas outras páginas") }
+
+/** Cabeçalho próprio de um capítulo; vazio usa o padrão do livro. */
+@Serializable
+data class ChapterHead(val verso: String = "", val recto: String = "")
+
+@Serializable
 data class RunningHeads(
     /** Página esquerda (par). */
     val verso: HeadContent = HeadContent.Autor,
@@ -127,7 +216,35 @@ data class RunningHeads(
     val folio: FolioPosition = FolioPosition.RodapeCentro,
     val sizePt: Float = 8.5f,
     val uppercase: Boolean = true,
-)
+    val position: HeadPosition = HeadPosition.Centro,
+    val ink: HeadInk = HeadInk.Preta,
+    /** Sobe (positivo) ou desce o cabeçalho, em mm. */
+    val raiseMm: Float = 0f,
+    /** Cabeçalho também na página de abertura de capítulo. */
+    val onOpening: Boolean = false,
+    val folioPages: FolioPages = FolioPages.Todas,
+    val openingFolio: OpeningFolio = OpeningFolio.Nenhum,
+    /** Pré-textuais em romanos (i, ii…) e o 1º capítulo recomeçando em [startAt]. */
+    val romanFrontMatter: Boolean = false,
+    /** Número da primeira página contada (a 1ª do livro, ou a do 1º capítulo com romanos). */
+    val startAt: Int = 1,
+    /** Páginas sem cabeçalho ou sem número (continuam contando). Chave = número da página. */
+    val hiddenHeads: Set<Int> = emptySet(),
+    val hiddenFolios: Set<Int> = emptySet(),
+    /** Cabeçalho próprio por capítulo (chave = id do capítulo). */
+    val chapterHeads: Map<String, ChapterHead> = emptyMap(),
+) {
+    /** Os ajustes que são do livro (não do visual) passam de um tema para outro. */
+    fun keepingBookData(from: RunningHeads) =
+        copy(hiddenHeads = from.hiddenHeads, hiddenFolios = from.hiddenFolios, chapterHeads = from.chapterHeads, startAt = from.startAt)
+
+    /** Número mostrado na página [n], com a página do 1º capítulo em [bodyStart] (`null` se ainda não começou). */
+    fun folioLabel(n: Int, bodyStart: Int?): String = when {
+        !romanFrontMatter -> (n - 1 + startAt).toString()
+        bodyStart == null || n < bodyStart -> toRoman(n).lowercase()
+        else -> (n - bodyStart + startAt).toString()
+    }
+}
 
 @Serializable
 data class FrontMatter(
@@ -151,6 +268,7 @@ data class LayoutSettings(
     val heads: RunningHeads = RunningHeads(),
     val front: FrontMatter = FrontMatter(),
     val sceneBreak: String = "*   *   *",
+    val cover: CoverSettings = CoverSettings(),
 )
 
 /** Estilos prontos de miolo. Cada um sugere fontes em ordem de preferência (a primeira instalada vence). */
@@ -178,9 +296,12 @@ enum class LayoutTheme(val label: String, val description: String, val bodyFonts
     ),
     ;
 
-    /** Configurações do tema, preservando dados do livro (créditos, ISBN) de [base]. */
-    fun apply(base: LayoutSettings): LayoutSettings {
-        val keep = base.front
+    /** Configurações do tema, preservando dados do livro (créditos, ISBN, capa) e as manchas por página de [base]. */
+    fun apply(base: LayoutSettings): LayoutSettings = miolo(base.front).let {
+        it.copy(cover = base.cover, page = it.page.copy(pageMargins = base.page.pageMargins), heads = it.heads.keepingBookData(base.heads))
+    }
+
+    private fun miolo(keep: FrontMatter): LayoutSettings {
         return when (this) {
             Classico -> LayoutSettings(theme = this, front = keep)
             Contemporaneo -> LayoutSettings(

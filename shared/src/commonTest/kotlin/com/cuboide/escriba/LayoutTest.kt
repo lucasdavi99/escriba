@@ -1,6 +1,19 @@
 package com.cuboide.escriba
 
 import com.cuboide.escriba.core.layout.BodyAlign
+import com.cuboide.escriba.core.layout.OpeningFolio
+import com.cuboide.escriba.core.layout.HeadPosition
+import com.cuboide.escriba.core.layout.HeadInk
+import com.cuboide.escriba.core.layout.FolioPages
+import com.cuboide.escriba.core.layout.ChapterHead
+import kotlin.test.assertFalse
+import com.cuboide.escriba.core.storage.EscribaJson
+import com.cuboide.escriba.core.layout.mmToPt
+import com.cuboide.escriba.core.layout.PageSetup
+import com.cuboide.escriba.core.layout.PageMargins
+import com.cuboide.escriba.core.layout.MarginEdge
+import com.cuboide.escriba.core.layout.MIN_MARGIN_MM
+import com.cuboide.escriba.core.layout.MAX_MARGIN_MM
 import com.cuboide.escriba.core.layout.ChapterNumberStyle
 import com.cuboide.escriba.core.layout.FontSpec
 import com.cuboide.escriba.core.layout.FrontMatter
@@ -215,5 +228,157 @@ class LayoutTest {
         val opening = book.pages.first { it.kind == PageKind.Abertura }
         val cap = opening.items.filterIsInstance<TextItem>().first { it.text == "P" && it.sizePt > settings.body.sizePt * 2 }
         assertTrue(cap.sizePt > settings.body.sizePt * 2)
+    }
+
+    @Test
+    fun marginEditsGoToThePageOrToTheWholeBook() {
+        val p = PageSetup()
+        // Sem mancha própria, a margem muda no livro inteiro (arredondada a 0,5 mm).
+        assertEquals(22.5f, p.withMargin(7, MarginEdge.Outer, 22.3f).marginOuterMm)
+        val own = p.ownMargins(7).withMargin(7, MarginEdge.Top, 30f)
+        assertEquals(30f, own.marginsFor(7).topMm)
+        assertEquals(p.marginTopMm, own.marginTopMm)
+        assertEquals(own.globalMargins, own.marginsFor(8))
+        assertFalse(own.followGlobal(7).hasOwnMargins(7))
+        val promoted = own.makeGlobal(7)
+        assertEquals(30f, promoted.marginTopMm)
+        assertTrue(promoted.pageMargins.isEmpty())
+        // Limites: cada margem até 60 mm e a mancha com ao menos 40 mm de largura (14 cm − 40 = 100 mm para as duas).
+        assertEquals(MAX_MARGIN_MM, p.withMargin(null, MarginEdge.Inner, 200f).marginInnerMm)
+        val wide = p.withMargin(null, MarginEdge.Inner, 60f).withMargin(null, MarginEdge.Outer, 60f)
+        assertEquals(60f, wide.marginInnerMm)
+        assertEquals(40f, wide.marginOuterMm)
+        assertEquals(MIN_MARGIN_MM, p.withMargin(null, MarginEdge.Bottom, 1f).marginBottomMm)
+    }
+
+    @Test
+    fun pageMarginsSurviveSavingAndThemes() {
+        val settings = LayoutSettings(page = PageSetup().ownMargins(12, PageMargins(30f, 25f, 22f, 18f)))
+        val json = EscribaJson.encodeToString(LayoutSettings.serializer(), settings)
+        assertEquals(settings, EscribaJson.decodeFromString(LayoutSettings.serializer(), json))
+        assertEquals(settings.page.pageMargins, LayoutTheme.Elegante.apply(settings).page.pageMargins)
+    }
+
+    @Test
+    fun pageWithOwnMarginsKeepsItsTextInsideItsBox() {
+        val base = LayoutSettings(front = FrontMatter(halfTitle = false, titlePage = false, credits = false, toc = false))
+        val sentence = "Naquela manhã o farol amanheceu coberto de areia e ninguém sabia explicar o vento. "
+        val long = TypesetSource(
+            "O Farol", "Marina Duarte",
+            listOf(TypesetChapter("c1", ChapterKind.Capitulo, "Um", 1, List(24) { sentence.repeat(6).trim() })),
+        )
+        val plain = Typesetter(base, MonoMeasurer).typeset(long)
+        val target = plain.pages.filter { it.kind == PageKind.Texto }[2].number
+        val settings = base.copy(page = base.page.ownMargins(target, PageMargins(topMm = 40f, bottomMm = 30f, innerMm = 20f, outerMm = 45f)))
+        val ts = Typesetter(settings, MonoMeasurer)
+        val book = ts.typeset(long)
+        val size = settings.body.sizePt
+        val textPages = book.pages.filter { it.kind == PageKind.Texto }
+        assertTrue(textPages.any { it.number == target })
+        for (page in textPages) {
+            val m = settings.page.marginsFor(page.number)
+            val left = mmToPt(if (page.recto) m.innerMm else m.outerMm)
+            val right = ts.widthPt - mmToPt(if (page.recto) m.outerMm else m.innerMm)
+            val body = page.items.filterIsInstance<TextItem>().filter { it.sizePt == size }
+            assertTrue(body.isNotEmpty(), "página ${page.number} sem texto")
+            for (t in body) {
+                val end = t.x + MonoMeasurer.width(t.text, t.font, t.sizePt, t.trackingEm)
+                assertTrue(t.x >= left - 0.5f && end <= right + 0.5f, "página ${page.number}: “${t.text}” fora da mancha ($left–$right, ${t.x}–$end)")
+                assertTrue(t.y >= mmToPt(m.topMm) && t.y <= ts.heightPt - mmToPt(m.bottomMm) + 0.5f, "página ${page.number}: linha fora da altura da mancha")
+            }
+        }
+        // O parágrafo que entra na página estreita é recomposto: as linhas dela são mais curtas que as da vizinha.
+        fun longestLine(n: Int) = book.pages.first { it.number == n }.items.filterIsInstance<TextItem>().filter { it.sizePt == size }
+            .groupBy { it.y }.values.maxOf { line -> line.maxOf { it.x + MonoMeasurer.width(it.text, it.font, it.sizePt) } - line.minOf { it.x } }
+        assertTrue(longestLine(target) < longestLine(target + 2) - mmToPt(20f), "página $target não ficou mais estreita")
+    }
+
+    private fun heads(page: com.cuboide.escriba.core.layout.LaidPage, settings: LayoutSettings) =
+        page.items.filterIsInstance<TextItem>().filter { it.sizePt == settings.heads.sizePt }
+
+    private fun folios(page: com.cuboide.escriba.core.layout.LaidPage, settings: LayoutSettings) =
+        page.items.filterIsInstance<TextItem>().filter { it.sizePt == settings.heads.sizePt + 0.5f }
+
+    @Test
+    fun romanFrontMatterRestartsAtTheFirstChapter() {
+        val base = LayoutSettings()
+        val settings = base.copy(heads = base.heads.copy(romanFrontMatter = true))
+        val book = Typesetter(settings, MonoMeasurer).typeset(source(paragraphs = 30))
+        val start = book.firstPageOf("c1")!!
+        assertEquals(start, book.bodyStart)
+        assertTrue(start > 3, "o 1º capítulo deveria vir depois das pré-textuais (página $start)")
+        assertEquals("1", book.pages[start - 1].folio)
+        assertEquals("iii", book.pages[2].folio)
+        val c2 = book.firstPageOf("c2")!!
+        assertEquals((c2 - start + 1).toString(), book.pages[c2 - 1].folio)
+        // O sumário mostra o número da página como ela sai impressa, não a posição no arquivo.
+        val tocText = book.pages.first { it.kind == PageKind.Sumario }.items.filterIsInstance<TextItem>().map { it.text }
+        assertTrue("1" in tocText && (c2 - start + 1).toString() in tocText, "sumário: $tocText")
+        assertEquals(listOf("1", (c2 - start + 1).toString()), book.toc.map { it.folio })
+        // Nas páginas de texto, o fólio impresso é o rótulo.
+        val text = book.pages.first { it.kind == PageKind.Texto }
+        assertEquals(listOf(text.folio), folios(text, settings).map { it.text })
+    }
+
+    @Test
+    fun numberingStartsWhereAsked() {
+        val base = LayoutSettings(front = FrontMatter(halfTitle = false, titlePage = false, credits = false, toc = false))
+        val settings = base.copy(heads = base.heads.copy(startAt = 11))
+        val book = Typesetter(settings, MonoMeasurer).typeset(source(paragraphs = 20, chapters = 1))
+        book.pages.forEach { assertEquals((it.number + 10).toString(), it.folio) }
+    }
+
+    @Test
+    fun folioRulesPerSideOpeningAndPage() {
+        val base = LayoutSettings(front = FrontMatter(halfTitle = false, titlePage = false, credits = false, toc = false))
+        val oddOnly = base.copy(heads = base.heads.copy(folioPages = FolioPages.Impares, openingFolio = OpeningFolio.Pe))
+        val book = Typesetter(oddOnly, MonoMeasurer).typeset(source(paragraphs = 40, chapters = 1))
+        for (p in book.pages.filter { it.kind == PageKind.Texto }) {
+            assertEquals(p.recto, folios(p, oddOnly).isNotEmpty(), "página ${p.number}")
+        }
+        // Abertura: número centrado no pé, sem cabeçalho.
+        val opening = book.pages.first { it.kind == PageKind.Abertura }
+        val f = folios(opening, oddOnly).single()
+        val ts = Typesetter(oddOnly, MonoMeasurer)
+        val m = oddOnly.page.marginsFor(opening.number)
+        val left = mmToPt(m.innerMm)
+        val textW = ts.widthPt - mmToPt(m.innerMm) - mmToPt(m.outerMm)
+        assertEquals(left + textW / 2f, f.x + MonoMeasurer.width(f.text, f.font, f.sizePt) / 2f, 0.5f)
+        assertTrue(heads(opening, oddOnly).isEmpty())
+
+        // Uma página sem número e sem cabeçalho continua contando; a seguinte segue normal.
+        val target = book.pages.first { it.kind == PageKind.Texto && it.recto }.number
+        val hidden = base.copy(heads = base.heads.copy(hiddenFolios = setOf(target), hiddenHeads = setOf(target)))
+        val b2 = Typesetter(hidden, MonoMeasurer).typeset(source(paragraphs = 40, chapters = 1))
+        assertTrue(folios(b2.pages[target - 1], hidden).isEmpty() && heads(b2.pages[target - 1], hidden).isEmpty())
+        assertEquals(listOf((target + 1).toString()), folios(b2.pages[target], hidden).map { it.text })
+        assertTrue(heads(b2.pages[target], hidden).isNotEmpty())
+    }
+
+    @Test
+    fun runningHeadPositionInkAndChapterText() {
+        val base = LayoutSettings(front = FrontMatter(halfTitle = false, titlePage = false, credits = false, toc = false))
+        val settings = base.copy(
+            heads = base.heads.copy(
+                position = HeadPosition.Externo, ink = HeadInk.Cinza,
+                chapterHeads = mapOf("c1" to ChapterHead(recto = "Meu cabeçalho")),
+            ),
+        )
+        val ts = Typesetter(settings, MonoMeasurer)
+        val book = ts.typeset(source(paragraphs = 40, chapters = 1))
+        val recto = book.pages.first { it.kind == PageKind.Texto && it.recto }
+        val verso = book.pages.first { it.kind == PageKind.Texto && !it.recto }
+        val rh = heads(recto, settings).single()
+        assertEquals("MEU CABEÇALHO", rh.text)
+        assertEquals(HeadInk.Cinza.ink, rh.ink)
+        // Canto de fora: na direita o cabeçalho termina na margem externa; na esquerda começa nela.
+        val m = settings.page.globalMargins
+        val rhEnd = rh.x + MonoMeasurer.width(rh.text, rh.font, rh.sizePt, rh.trackingEm)
+        assertEquals(ts.widthPt - mmToPt(m.outerMm), rhEnd, 0.5f)
+        assertEquals(mmToPt(m.outerMm), heads(verso, settings).single().x, 0.5f)
+        // O tema troca o visual, mas não o que é do livro.
+        val themed = LayoutTheme.Elegante.apply(settings.copy(heads = settings.heads.copy(hiddenFolios = setOf(9))))
+        assertEquals(setOf(9), themed.heads.hiddenFolios)
+        assertEquals(settings.heads.chapterHeads, themed.heads.chapterHeads)
     }
 }

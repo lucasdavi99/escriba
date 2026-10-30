@@ -67,16 +67,36 @@ import com.cuboide.escriba.core.text.replaceOne
 import com.cuboide.escriba.core.text.searchBook
 import com.cuboide.escriba.platform.buildDocx
 import com.cuboide.escriba.platform.chooseOpenFile
+import com.cuboide.escriba.platform.copyToClipboard
 import com.cuboide.escriba.platform.chooseSaveFile
+import com.cuboide.escriba.core.layout.CheckFix
+import com.cuboide.escriba.core.layout.CheckItem
+import com.cuboide.escriba.core.layout.CheckLevel
+import com.cuboide.escriba.core.layout.COVER_SAFE_MM
+import com.cuboide.escriba.core.layout.CoverExportRecord
+import com.cuboide.escriba.core.layout.CoverLayout
+import com.cuboide.escriba.core.layout.CoverOverlay
+import com.cuboide.escriba.core.layout.CoverPanel
+import com.cuboide.escriba.core.layout.EbookCoverSize
+import com.cuboide.escriba.core.layout.coverGeometry
+import com.cuboide.escriba.core.layout.ebookCoverPixels
+import com.cuboide.escriba.core.layout.applyFix
+import com.cuboide.escriba.core.layout.checkLayout
+import com.cuboide.escriba.core.layout.printSpec
+import com.cuboide.escriba.core.layout.CoverSettings
 import com.cuboide.escriba.core.layout.ImageSizer
 import com.cuboide.escriba.core.layout.LaidOutBook
 import com.cuboide.escriba.core.layout.LayoutSettings
 import com.cuboide.escriba.core.layout.LayoutTheme
 import com.cuboide.escriba.core.layout.layoutBook
+import com.cuboide.escriba.core.layout.formatMm
+import com.cuboide.escriba.core.layout.layoutCover
 import com.cuboide.escriba.core.layout.loadLayoutSettings
 import com.cuboide.escriba.core.layout.saveLayoutSettings
 import com.cuboide.escriba.platform.imagePixelSize
 import com.cuboide.escriba.platform.layoutMeasurer
+import com.cuboide.escriba.platform.writeCoverPdf
+import com.cuboide.escriba.platform.writeEbookCover
 import com.cuboide.escriba.platform.writeLayoutPdf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -975,14 +995,139 @@ class EscribaController(private val services: EscribaServices, private val scope
         }
     }
 
-    fun exportLayoutPdf() {
+    /** Pontos críticos da conferência que seguraram o PDF (a tela pergunta se gera assim mesmo). */
+    var layoutGate by mutableStateOf<List<CheckItem>?>(null); private set
+
+    fun applyLayoutFix(fix: CheckFix) {
+        val pages = layout?.pages?.size ?: return
+        updateLayout { applyFix(it, fix, pages) }
+        message = "Conserto aplicado: ${fix.label.lowercase()}. A diagramação foi refeita — confira o sumário e a lombada."
+    }
+
+    fun dismissLayoutGate() { layoutGate = null }
+
+    fun copyPrintSpec() {
+        val laid = layout ?: return
+        copyToClipboard(printSpec(laid))
+        message = "Ficha técnica copiada: cole no e-mail ou na mensagem para a gráfica."
+    }
+
+    /** Gera o PDF do miolo. Sem [force], para antes se a conferência achar algo que sairia errado no impresso. */
+    fun exportLayoutPdf(force: Boolean = false) {
         val b = book ?: return
         val laid = layout ?: return
+        layoutGate = null
+        if (!force) {
+            val critical = checkLayout(laid).filter { it.level == CheckLevel.Critico }
+            if (critical.isNotEmpty()) {
+                layoutGate = critical
+                return
+            }
+        }
         scope.launch {
             val target = chooseSaveFile("${b.manifest.title} - miolo", "pdf") ?: return@launch
             runCatching { withContext(Dispatchers.Default) { writeLayoutPdf(laid, target, ::layoutImage) } }
                 .onSuccess { message = "PDF do miolo gerado: $target (${laid.pages.size} páginas)" }
                 .onFailure { message = "Falha ao gerar o PDF: ${it.message}" }
+        }
+    }
+
+    // ---------- Capa ----------
+
+    /** Muda só a capa: grava `layout.json` sem refazer a diagramação do miolo. */
+    fun updateCover(transform: (CoverSettings) -> CoverSettings) {
+        val b = book ?: return
+        val updated = layoutSettings.copy(cover = transform(layoutSettings.cover))
+        if (updated == layoutSettings) return
+        layoutSettings = updated
+        saveLayoutSettings(services.fs, b.path, updated)
+    }
+
+    /** Escolhe a arte de fundo e copia para `assets/` do livro. */
+    fun importCoverImage() {
+        val b = book ?: return
+        scope.launch {
+            val source = chooseOpenFile("Arte da capa", COVER_IMAGE_EXTENSIONS) ?: return@launch
+            val bytes = services.fs.readBytes(source)
+            if (bytes == null || imagePixelSize(bytes) == null) {
+                message = "Não foi possível ler a imagem."
+                return@launch
+            }
+            val relative = services.books.importAsset(b.path, bytes, source.substringAfterLast('.', "png"))
+            // Arte nova começa enquadrada do zero (cobrindo tudo, centralizada).
+            updateCover { it.copy(image = relative, artZoom = 1f, artOffsetXMm = 0f, artOffsetYMm = 0f) }
+        }
+    }
+
+    /** Importa uma imagem solta (logo, selo) e a põe no canto inferior esquerdo da contracapa, para arrastar. */
+    fun addCoverOverlay() {
+        val b = book ?: return
+        val laid = layout ?: return
+        scope.launch {
+            val source = chooseOpenFile("Imagem sobre a capa (logo, selo)", COVER_IMAGE_EXTENSIONS) ?: return@launch
+            val bytes = services.fs.readBytes(source)
+            if (bytes == null || imagePixelSize(bytes) == null) {
+                message = "Não foi possível ler a imagem."
+                return@launch
+            }
+            val relative = services.books.importAsset(b.path, bytes, source.substringAfterLast('.', "png"))
+            val g = coverGeometry(laid, layoutSettings.cover)
+            val back = g.zone(CoverPanel.Contracapa)!!
+            val overlay = CoverOverlay(services.newId(), relative, back.xMm + COVER_SAFE_MM, g.heightMm - COVER_SAFE_MM - 20f, 25f)
+            updateCover { it.copy(overlays = it.overlays + overlay) }
+        }
+    }
+
+    fun updateCoverOverlay(id: String, transform: (CoverOverlay) -> CoverOverlay) =
+        updateCover { c -> c.copy(overlays = c.overlays.map { if (it.id == id) transform(it) else it }) }
+
+    fun removeCoverOverlay(id: String) = updateCover { c -> c.copy(overlays = c.overlays.filterNot { it.id == id }) }
+
+    /** Capa montada sobre o miolo [laid] (a lombada vem do número de páginas dele). Pode ler a arte do disco. */
+    fun coverFor(laid: LaidOutBook, settings: LayoutSettings = layoutSettings): CoverLayout {
+        val px = settings.cover.image.takeIf { it.isNotBlank() }?.let { layoutImage(it) }?.let(::imagePixelSize)
+        return layoutCover(laid, settings.cover, settings.front.isbn, layoutMeasurer(), px) { path -> layoutImage(path)?.let(::imagePixelSize) }
+    }
+
+    fun exportCoverPdf() {
+        val b = book ?: return
+        val laid = layout ?: return
+        val settings = layoutSettings
+        scope.launch {
+            val cover = withContext(Dispatchers.Default) { coverFor(laid, settings) }
+            if (!cover.canExport) {
+                message = "A capa tem pendências: " + cover.issues.filter { it.blocking }.joinToString(" ") { it.message }
+                return@launch
+            }
+            val target = chooseSaveFile("${b.manifest.title} - capa", "pdf") ?: return@launch
+            runCatching { withContext(Dispatchers.Default) { writeCoverPdf(cover, target, ::layoutImage) } }
+                .onSuccess {
+                    // Guarda a lombada desta capa: se o miolo mudar depois, a conferência avisa.
+                    updateCover { c -> c.copy(lastExport = CoverExportRecord(laid.pages.size, cover.geometry.spineMm)) }
+                    message = "PDF da capa gerado: $target (lombada de ${formatMm(cover.geometry.spineMm)} mm)"
+                }
+                .onFailure { message = "Falha ao gerar o PDF da capa: ${it.message}" }
+        }
+    }
+
+    /** Frente da capa em JPEG para lojas de e-book (não precisa de ISBN nem de miolo par). */
+    fun exportEbookCover(size: EbookCoverSize) {
+        val b = book ?: return
+        val laid = layout ?: return
+        val settings = layoutSettings
+        if (settings.cover.image.isBlank() && settings.cover.gradient == null) {
+            message = "Importe a arte ou escolha um degradê antes de gerar a capa do e-book."
+            return
+        }
+        scope.launch {
+            val cover = withContext(Dispatchers.Default) { coverFor(laid, settings) }
+            val target = chooseSaveFile("${b.manifest.title} - capa ebook", "jpg") ?: return@launch
+            runCatching { withContext(Dispatchers.Default) { writeEbookCover(cover, target, size, ::layoutImage) } }
+                .onSuccess {
+                    val (w, h) = ebookCoverPixels(size, cover.geometry)
+                    message = "Capa do e-book gerada: $target ($w × $h px)"
+                }
+                .onFailure { message = "Falha ao gerar a capa do e-book: ${it.message}" }
         }
     }
 
@@ -1033,5 +1178,7 @@ class EscribaController(private val services: EscribaServices, private val scope
         const val FIELD_SYNC_MS = 120L
         const val MAX_UNDO = 300
         val IMAGE_EXTENSIONS = listOf("png", "jpg", "jpeg", "gif", "webp")
+        /** Só formatos que o PDF da capa embute sem conversão. */
+        val COVER_IMAGE_EXTENSIONS = listOf("png", "jpg", "jpeg")
     }
 }

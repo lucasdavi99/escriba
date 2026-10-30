@@ -66,4 +66,19 @@ class LayoutPdfTest {
             }
         }
     }
+
+    @Test
+    fun pdfPageLabelsFollowRomanFrontMatter() {
+        val base = LayoutSettings()
+        val settings = base.copy(heads = base.heads.copy(romanFrontMatter = true))
+        val book = Typesetter(settings, layoutMeasurer()).typeset(sampleSource)
+        val out = File(System.getProperty("java.io.tmpdir"), "escriba-layout-rotulos.pdf")
+        writeLayoutPdf(book, out.path) { null }
+        Loader.loadPDF(out).use { doc ->
+            val labels = doc.documentCatalog.pageLabels.labelsByPageIndices
+            assertEquals(book.pages.map { it.folio }, labels.toList())
+            assertEquals("i", labels[0])
+            assertEquals("1", labels[book.bodyStart - 1])
+        }
+    }
 }

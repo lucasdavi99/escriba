@@ -7,6 +7,9 @@ Levantamento feito em 26/10/2026 sobre o **Autor 1.1.26**, por duas fontes:
   proíbe reimplementação, por isso nada foi copiado. O Escriba implementa o mesmo **comportamento** com código,
   algoritmos e valores próprios.
 
+> A análise completa, do miolo à capa dura, marcadores e livro 3D, está em
+> [diagramacao-autor-analise-completa.md](diagramacao-autor-analise-completa.md).
+
 ## 1. O que o Autor oferece
 
 ### Entrada
