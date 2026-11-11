@@ -12,6 +12,8 @@ import com.cuboide.escriba.core.export.exportHtml
 import com.cuboide.escriba.core.export.exportMarkdown
 import com.cuboide.escriba.core.export.exportPlainText
 import com.cuboide.escriba.core.export.imagePaths
+import com.cuboide.escriba.core.board.PlotBoards
+import com.cuboide.escriba.core.board.ensureBoard
 import com.cuboide.escriba.core.model.Beat
 import com.cuboide.escriba.core.model.BookManifest
 import com.cuboide.escriba.core.model.BookNotes
@@ -144,11 +146,19 @@ enum class Section(val label: String, val needsBook: Boolean) {
 
 enum class SaveState { Salvo, Pendente, Salvando }
 
-class OpenBook(val path: String, manifest: BookManifest, universe: Universe, outline: Outline, notes: BookNotes = BookNotes()) {
+class OpenBook(
+    val path: String,
+    manifest: BookManifest,
+    universe: Universe,
+    outline: Outline,
+    notes: BookNotes = BookNotes(),
+    boards: PlotBoards = PlotBoards(),
+) {
     var manifest by mutableStateOf(manifest)
     var universe by mutableStateOf(universe)
     var outline by mutableStateOf(outline)
     var notes by mutableStateOf(notes)
+    var boards by mutableStateOf(boards)
 }
 
 class EscribaController(private val services: EscribaServices, private val scope: CoroutineScope) {
@@ -166,6 +176,12 @@ class EscribaController(private val services: EscribaServices, private val scope
     var trashItems by mutableStateOf<List<TrashItem>>(emptyList()); private set
     var snapshots by mutableStateOf<List<Snapshot>>(emptyList()); private set
     var message by mutableStateOf<String?>(null)
+
+    /** Mapa de enredo do livro aberto. */
+    val map = PlotMapController(this, services, scope)
+    var enredoView by mutableStateOf(EnredoView.Mapa)
+    /** Ficha que o Universo deve abrir ao ser mostrado (vem do chip de um cartão do mapa). */
+    var universeFocus by mutableStateOf<String?>(null); private set
 
     // Localizar/substituir no capítulo atual
     var findVisible by mutableStateOf(false)
@@ -249,7 +265,11 @@ class EscribaController(private val services: EscribaServices, private val scope
             message = "Não foi possível abrir o livro: ${it.message}"
             return
         }
-        book = OpenBook(path, manifest, services.books.loadUniverse(path), services.books.loadOutline(path), services.books.loadNotes(path))
+        book = OpenBook(
+            path, manifest, services.books.loadUniverse(path), services.books.loadOutline(path), services.books.loadNotes(path),
+            services.books.loadBoards(path).ensureBoard(services.newId, "Quadro 1"),
+        )
+        map.reset()
         layoutSettings = loadLayoutSettings(services.fs, path)
         layout = null
         services.productivity.record(today(), 0, 0, newSession = true)
@@ -261,6 +281,7 @@ class EscribaController(private val services: EscribaServices, private val scope
     fun goTo(target: Section) {
         if (target.needsBook && book == null) return
         if (section == Section.Manuscrito && target != Section.Manuscrito) flushSave()
+        if (section == Section.Enredo && target != Section.Enredo) map.flush()
         if (target != Section.Manuscrito) focusMode = false
         section = target
         if (target == Section.Diagramacao) requestLayout(0)
@@ -268,6 +289,9 @@ class EscribaController(private val services: EscribaServices, private val scope
 
     fun closeBook() {
         flushSave()
+        map.flush()
+        map.reset()
+        universeFocus = null
         layoutJob?.cancel()
         layout = null
         layoutBusy = false
@@ -840,6 +864,21 @@ class EscribaController(private val services: EscribaServices, private val scope
     }
 
     // ---------- Enredo ----------
+
+    /** Abre a ficha no Universo (pelo chip de um cartão do mapa). */
+    fun openUniverseEntry(id: String) {
+        if (book?.universe?.entries?.none { it.id == id } != false) {
+            message = "A ficha vinculada não existe mais."
+            return
+        }
+        universeFocus = id
+        goTo(Section.Universo)
+    }
+
+    /** O Universo já mostrou a ficha pedida. */
+    fun consumeUniverseFocus() {
+        universeFocus = null
+    }
 
     fun newBeat(): Beat = Beat(services.newId(), "")
 

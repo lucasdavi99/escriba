@@ -31,6 +31,9 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -44,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.cuboide.escriba.app.EnredoView
 import com.cuboide.escriba.app.EscribaController
 import com.cuboide.escriba.core.model.Beat
 import com.cuboide.escriba.core.model.BeatStatus
@@ -56,10 +60,33 @@ import com.cuboide.escriba.core.outline.StructureTemplates
 import com.cuboide.escriba.core.outline.groupByAct
 import com.cuboide.escriba.core.outline.statusCounts
 
-/** Quadro de Enredo: cartões de cena na ordem do roteiro, agrupados por etapa. */
+/** Título do Enredo com a escolha entre o mapa livre e o roteiro. */
+@Composable
+private fun EnredoHeader(c: EscribaController) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Enredo", style = MaterialTheme.typography.headlineMedium)
+        Spacer(Modifier.width(20.dp))
+        SingleChoiceSegmentedButtonRow {
+            EnredoView.entries.forEachIndexed { i, v ->
+                SegmentedButton(
+                    selected = c.enredoView == v,
+                    onClick = { c.map.flush(); c.enredoView = v },
+                    shape = SegmentedButtonDefaults.itemShape(i, EnredoView.entries.size),
+                    label = { Text(v.label) },
+                )
+            }
+        }
+    }
+}
+
+/** Enredo: o mapa livre ou o roteiro (cartões de cena na ordem da história, agrupados por etapa). */
 @Composable
 fun OutlineBoard(c: EscribaController, modifier: Modifier) {
     val book = c.book ?: return
+    if (c.enredoView == EnredoView.Mapa) {
+        PlotMap(c, header = { EnredoHeader(c) }, modifier = modifier)
+        return
+    }
     var filter by remember { mutableStateOf(BeatFilter()) }
     var editing by remember { mutableStateOf<Beat?>(null) }
     var confirmTemplate by remember { mutableStateOf<StructureTemplate?>(null) }
@@ -163,7 +190,8 @@ private fun OutlineToolbar(
     Surface(color = MaterialTheme.colorScheme.background) {
         Column(Modifier.fillMaxWidth().padding(start = 36.dp, end = 28.dp, top = 28.dp, bottom = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Enredo", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
+                EnredoHeader(c)
+                Spacer(Modifier.weight(1f))
                 Box {
                     TextButton(onClick = { templateMenu = true }) { Text("Modelos ▾") }
                     DropdownMenu(expanded = templateMenu, onDismissRequest = { templateMenu = false }) {

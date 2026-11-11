@@ -56,3 +56,22 @@ actual fun coverFacesPng(cover: CoverLayout, widthPx: Int, images: (String) -> B
 
 actual fun decodeImageBitmap(bytes: ByteArray): ImageBitmap? =
     runCatching { org.jetbrains.skia.Image.makeFromEncoded(bytes).toComposeImageBitmap() }.getOrNull()
+
+actual fun decodeImageThumbnail(bytes: ByteArray, maxPx: Int): ImageBitmap? = runCatching {
+    val image = org.jetbrains.skia.Image.makeFromEncoded(bytes)
+    val longest = maxOf(image.width, image.height)
+    if (longest <= maxPx) return@runCatching image.toComposeImageBitmap()
+    val scale = maxPx.toFloat() / longest
+    val w = (image.width * scale).toInt().coerceAtLeast(1)
+    val h = (image.height * scale).toInt().coerceAtLeast(1)
+    val surface = org.jetbrains.skia.Surface.makeRasterN32Premul(w, h)
+    surface.canvas.drawImageRect(
+        image,
+        org.jetbrains.skia.Rect.makeWH(image.width.toFloat(), image.height.toFloat()),
+        org.jetbrains.skia.Rect.makeWH(w.toFloat(), h.toFloat()),
+        org.jetbrains.skia.SamplingMode.CATMULL_ROM,
+        null,
+        true,
+    )
+    surface.makeImageSnapshot().toComposeImageBitmap()
+}.getOrNull()

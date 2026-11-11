@@ -1,5 +1,6 @@
 package com.cuboide.escriba.core.storage
 
+import com.cuboide.escriba.core.board.PlotBoards
 import com.cuboide.escriba.core.model.BOOK_EXTENSION
 import com.cuboide.escriba.core.model.BookManifest
 import com.cuboide.escriba.core.model.BookNotes
@@ -16,8 +17,9 @@ import com.cuboide.escriba.core.model.Universe
  * chapters/<id>.md     texto de cada capítulo
  * universe.json        fichas (personagens, locais, grupos, lore)
  * outline.json         roteiro: cartões de cena na ordem da história
+ * enredo.json          mapas de enredo: quadros livres com nós, ligações e a legenda de cores
  * notes.json           blocos de anotações livres do livro
- * assets/…             imagens inseridas no texto (`![legenda](assets/x.png)`)
+ * assets/…             imagens do texto (`![legenda](assets/x.png)`), da capa e dos mapas de enredo
  * snapshots/<id>/…     versões salvas de cada capítulo (ver SnapshotStore)
  * ```
  */
@@ -98,6 +100,16 @@ class BookRepository(
         fs.writeText(joinPath(bookPath, OUTLINE), EscribaJson.encodeToString(Outline.serializer(), outline))
     }
 
+    /** Livros antigos não têm `enredo.json`: o mapa começa vazio (o controlador cria o primeiro quadro). */
+    fun loadBoards(bookPath: String): PlotBoards {
+        val text = fs.readText(joinPath(bookPath, ENREDO)) ?: return PlotBoards()
+        return runCatching { EscribaJson.decodeFromString(PlotBoards.serializer(), text) }.getOrDefault(PlotBoards())
+    }
+
+    fun saveBoards(bookPath: String, boards: PlotBoards) {
+        fs.writeText(joinPath(bookPath, ENREDO), EscribaJson.encodeToString(PlotBoards.serializer(), boards))
+    }
+
     fun loadNotes(bookPath: String): BookNotes {
         val text = fs.readText(joinPath(bookPath, NOTES)) ?: return BookNotes()
         return runCatching { EscribaJson.decodeFromString(BookNotes.serializer(), text) }.getOrDefault(BookNotes())
@@ -137,6 +149,7 @@ class BookRepository(
         const val MANIFEST = "book.json"
         const val UNIVERSE = "universe.json"
         const val OUTLINE = "outline.json"
+        const val ENREDO = "enredo.json"
         const val CHAPTERS_DIR = "chapters"
         const val SNAPSHOTS_DIR = "snapshots"
         const val NOTES = "notes.json"

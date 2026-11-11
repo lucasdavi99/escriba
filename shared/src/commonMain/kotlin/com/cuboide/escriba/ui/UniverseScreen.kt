@@ -76,6 +76,12 @@ fun UniverseScreen(c: EscribaController) {
     var filter by remember { mutableStateOf("") }
     var selectedId by remember { mutableStateOf<String?>(null) }
     val all = book.universe.entries
+    // Pedido vindo do mapa de enredo: mostra a ficha e a aba do tipo dela.
+    LaunchedEffect(c.universeFocus) {
+        val id = c.universeFocus ?: return@LaunchedEffect
+        all.firstOrNull { it.id == id }?.let { e -> kind = e.kind; filter = ""; selectedId = e.id }
+        c.consumeUniverseFocus()
+    }
     val entries = all.filter { it.kind == kind }
         .filter { filter.isBlank() || it.name.contains(filter, true) || it.tags.any { t -> t.contains(filter, true) } }
         .sortedBy { it.name.lowercase() }

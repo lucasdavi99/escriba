@@ -55,7 +55,7 @@ Legenda: ✅ tem · 🟡 tem parte · ❌ não tem. O esforço supõe uma pessoa
 | # | Funcionalidade | Evidência | Escriba | O que é preciso | Esforço |
 |---|---|---|---|---|---|
 | 19 | Roteiro de cenas com modelos | `outline:*` | 🟡 2 modelos | O Autor tem 10 (Save the Cat, Jornada do Herói, Story Circle, Sete Pontos, Kishōtenketsu, Fichtean, Romance, Mistério, Snowflake, Três Atos) e permite salvar e apagar modelos próprios | P |
-| 20 | Quadro de enredo livre (canvas, ligações, minimapa) | `renderer/enredo/` (23 arquivos, 270 KB) | ❌ | Canvas com zoom e arrasto em Compose, cartões posicionados, setas, minimapa, gravação em `enredo.json` | G |
+| 20 | Quadro de enredo livre (canvas, ligações, minimapa) | `renderer/enredo/` (23 arquivos, 270 KB) | 🟡 | Feito: aba **Mapa** do Enredo (`PlotCanvas.kt`, `core/board/`, `enredo.json`) com zoom e arrasto, cartões com imagem, nós de imagem e de texto, ligações curvas com cor, rótulo e legenda, vínculo com fichas, vários quadros, desfazer e "Arranjar". Falta: minimapa | P |
 | 21 | Linha do tempo e análise de arco | `enredo-timeline.js`, `enredo-arc-analysis.js` | ❌ | Eixo temporal das cenas e curva de tensão por cena | M |
 | 22 | Agenda e prazos ("Norte") | `norte:*` | ❌ | Calendário com marcos e prazos, ligado às metas | M |
 | 23 | Novels (publicação seriada) | `novels:*` | ❌ | Episódios com data de publicação a partir dos capítulos | M |
@@ -212,7 +212,7 @@ seção 2 foi atualizada. Abaixo, o que ainda falta, em ordem de prioridade para
 | Biblioteca | Capa do livro, livros fixados, "inspiração do dia", atividade recente, abrir livro de qualquer pasta | Só a estante e os números | P–M |
 | Manuscrito | Revisão ortográfica, autocorreção de acentos, sinônimos, arrastar capítulos | Ver seção 7 (o resto já tem) | M–G |
 | Roteiro | 10 modelos de estrutura, salvar modelo próprio, vista em lista e em mural | 2 modelos, só quadro por ato | P |
-| Enredo | Quadro livre infinito: cartões, personagens/lugares, imagens, textos, ligações com legenda de cores, arranjo automático, vistas "Linha do tempo" e "Família" | ❌ | G |
+| Enredo | Quadro livre infinito: cartões, personagens/lugares, imagens, textos, ligações com legenda de cores, arranjo automático, vistas "Linha do tempo" e "Família" | 🟡 tudo menos as vistas "Linha do tempo" e "Família" e o minimapa | M |
 | Universo | Retratos, relações, calendário do mundo (modelos de meses e semanas), idiomas inventados (escrita própria, tradutor, nomes com significado), Acervo de universos compartilhados entre livros, Unificar livros | Só fichas com resumo, notas e etiquetas | M–G cada |
 | Novels | Trechos do manuscrito viram capítulos de uma novel, prontos para colar em plataformas | ❌ | M |
 | Diagramação | Livro em páginas (formato, lombada, tema, numeração, tipografia do corpo, hifenização, capítulo abrindo em página ímpar), "Gerar PDF", e montagem de capa | ❌ | GG |

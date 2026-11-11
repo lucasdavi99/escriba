@@ -78,7 +78,7 @@ fun App(controller: EscribaController? = null) {
                 // Ctrl+Z no editor usa o desfazer do manuscrito (que também desfaz formatação e substituições).
                 val typing = inEditor && c.editorFocused
                 when (e.key) {
-                    Key.S -> { c.flushSave(); true }
+                    Key.S -> { c.flushSave(); c.map.flush(); true }
                     Key.F -> { if (e.isShiftPressed) c.goTo(Section.Busca) else c.openFind(); true }
                     Key.H -> { c.openFind(); true }
                     Key.B -> if (inEditor) { c.toggleMark(MarkKind.Bold); true } else false

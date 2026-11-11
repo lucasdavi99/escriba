@@ -90,3 +90,6 @@ expect fun coverFacesPng(cover: com.cuboide.escriba.core.layout.CoverLayout, wid
 
 /** Lê uma imagem (PNG, JPEG…) para mostrar na tela; `null` se não der. */
 expect fun decodeImageBitmap(bytes: ByteArray): androidx.compose.ui.graphics.ImageBitmap?
+
+/** Como [decodeImageBitmap], mas reduzida para que o maior lado tenha no máximo [maxPx] (miniaturas do mapa). */
+expect fun decodeImageThumbnail(bytes: ByteArray, maxPx: Int): androidx.compose.ui.graphics.ImageBitmap?
