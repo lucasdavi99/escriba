@@ -1,6 +1,8 @@
 package com.cuboide.escriba.ui
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.VerticalScrollbar
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -255,6 +257,12 @@ fun LayoutScreen(c: EscribaController) {
                             }
                         }
                     }
+                }
+                if (laid != null) {
+                    VerticalScrollbar(
+                        adapter = rememberScrollbarAdapter(listState),
+                        modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight().padding(vertical = 4.dp),
+                    )
                 }
             }
             VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
