@@ -978,27 +978,24 @@ private fun Inspector(c: EscribaController, modifier: Modifier) {
             InfoRow("Leitura", "${readingMinutes(words)} min")
         }
         FootnotesBlock(c)
-        val mentioned = remember(text, book.universe) {
-            book.universe.entries.filter { it.name.length >= 2 && text.contains(it.name, ignoreCase = true) }
-        }
+        // Nome e apelidos, palavra inteira, sem diferenciar acentos; as mais citadas primeiro.
+        val mentioned = remember(text, book.universe) { c.entriesInCurrentChapter() }
         InspectorBlock("Aparecem neste capítulo") {
             if (mentioned.isEmpty()) {
                 Text("Nenhuma ficha do Universo citada.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            mentioned.forEach { e ->
+            mentioned.forEach { (e, count) ->
                 Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { c.goTo(Section.Universo) }.padding(vertical = 4.dp),
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { c.openUniverseEntry(e.id) }.padding(vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Box(
-                        Modifier.size(26.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer),
-                        contentAlignment = Alignment.Center,
-                    ) { Text(e.name.take(1).uppercase(), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSecondaryContainer) }
+                    EntryAvatar(c, e, 26)
                     Spacer(Modifier.width(10.dp))
-                    Column {
+                    Column(Modifier.weight(1f)) {
                         Text(e.name, style = MaterialTheme.typography.bodyMedium)
                         Text(e.kind.label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                    Text("${count}×", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }

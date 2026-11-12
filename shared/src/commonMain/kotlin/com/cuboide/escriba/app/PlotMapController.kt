@@ -31,7 +31,7 @@ import com.cuboide.escriba.core.board.resize
 import com.cuboide.escriba.core.board.updateActive
 import com.cuboide.escriba.core.board.updateEdge
 import com.cuboide.escriba.core.board.updateNode
-import com.cuboide.escriba.platform.chooseOpenFile
+import com.cuboide.escriba.core.universe.digest
 import com.cuboide.escriba.platform.imagePixelSize
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -277,17 +277,7 @@ class PlotMapController internal constructor(
         editBoard { bd -> bd.updateNode(id) { it.copy(height = it.width * h / w.coerceAtLeast(1), frame = ImageFrame()) } }
     }
 
-    private suspend fun pickImage(title: String): Pair<String, Pair<Int, Int>>? {
-        val b = owner.book ?: return null
-        val source = chooseOpenFile(title, EscribaController.IMAGE_EXTENSIONS) ?: return null
-        val bytes = services.fs.readBytes(source)
-        val size = bytes?.let { imagePixelSize(it) }
-        if (bytes == null || size == null) {
-            owner.message = "Não foi possível ler a imagem."
-            return null
-        }
-        return services.books.importAsset(b.path, bytes, source.substringAfterLast('.', "png")) to size
-    }
+    private suspend fun pickImage(title: String): Pair<String, Pair<Int, Int>>? = owner.pickAndImportImage(title)
 
     fun moveNodes(ids: Set<String>, dx: Float, dy: Float) = editBoard { it.moveNodes(ids, dx, dy) }
 
@@ -352,7 +342,7 @@ class PlotMapController internal constructor(
                 else n.copy(
                     entryId = entry.id,
                     title = n.title.ifBlank { entry.name },
-                    body = n.body.ifBlank { entry.summary },
+                    body = n.body.ifBlank { entry.digest() },
                 )
             }
         }

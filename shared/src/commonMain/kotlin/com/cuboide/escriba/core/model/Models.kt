@@ -83,19 +83,48 @@ enum class EntryKind(val label: String, val plural: String) {
     Lore("Lore", "Lore"),
 }
 
+/**
+ * Bloco de texto da ficha (Descrição física, Personalidade, Notas…). [key] liga o bloco ao esquema do tipo
+ * (ver `core/universe/EntrySchemas.kt`); `null` é uma seção criada pelo autor. O texto usa a marcação do Manuscrito.
+ */
+@Serializable
+data class EntryBlock(val id: String, val key: String? = null, val title: String = "", val text: String = "")
+
+/** Campo curto da ficha (Olhos, Clima…). [key] liga ao esquema; `null` é um atributo livre com rótulo próprio. */
+@Serializable
+data class EntryAttribute(
+    val id: String,
+    val key: String? = null,
+    val label: String = "",
+    val value: String = "",
+    /** Fato "selado": o Manuscrito confere o texto contra ele (fase de contradições). */
+    val sealed: Boolean = false,
+)
+
+/** Imagem da ficha guardada em `assets/` do livro, com o enquadramento escolhido. */
+@Serializable
+data class EntryImage(val path: String, val frame: com.cuboide.escriba.core.board.ImageFrame = com.cuboide.escriba.core.board.ImageFrame())
+
 @Serializable
 data class UniverseEntry(
     val id: String,
     val kind: EntryKind,
     val name: String,
+    /** Campos da versão 1 das fichas; ao abrir o livro viram blocos (ver `migrateUniverse`). */
     val summary: String = "",
     val notes: String = "",
     val tags: List<String> = emptyList(),
     val modifiedAt: Long = 0,
+    /** Papel na história, tipo de lugar, tipo de grupo, categoria de lore… */
+    val subtitle: String = "",
+    val blocks: List<EntryBlock> = emptyList(),
+    val attributes: List<EntryAttribute> = emptyList(),
+    val portrait: EntryImage? = null,
+    val gallery: List<EntryImage> = emptyList(),
 )
 
 @Serializable
-data class Universe(val entries: List<UniverseEntry> = emptyList())
+data class Universe(val entries: List<UniverseEntry> = emptyList(), val schemaVersion: Int = 1)
 
 @Serializable
 enum class BeatStatus(val label: String) {

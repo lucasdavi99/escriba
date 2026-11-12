@@ -44,6 +44,14 @@ import com.cuboide.escriba.core.storage.Snapshot
 import com.cuboide.escriba.core.storage.SnapshotStore
 import com.cuboide.escriba.core.storage.TrashItem
 import com.cuboide.escriba.core.storage.TrashStore
+import com.cuboide.escriba.core.storage.TrashKind
+import com.cuboide.escriba.core.board.ImageFrame
+import com.cuboide.escriba.core.model.EntryImage
+import com.cuboide.escriba.core.universe.EntryMentions
+import com.cuboide.escriba.core.universe.MentionIndex
+import com.cuboide.escriba.core.universe.UNIVERSE_SCHEMA_VERSION
+import com.cuboide.escriba.core.universe.findMentions
+import com.cuboide.escriba.core.universe.searchTerms
 import com.cuboide.escriba.core.storage.fileName
 import com.cuboide.escriba.core.storage.joinPath
 import com.cuboide.escriba.core.text.BlockKind
@@ -215,6 +223,9 @@ class EscribaController(private val services: EscribaServices, private val scope
     private var layoutJob: Job? = null
 
     private var autosaveJob: Job? = null
+    /** Gravação da ficha em espera (ver [updateEntry]). */
+    private var entrySaveJob: Job? = null
+    private val mentionIndex = MentionIndex()
     /**
      * Maior contagem de palavras de cada capítulo já registrada hoje. Só o que passa dessa marca entra em
      * "palavras escritas": apagar e reescrever, ou desfazer e refazer, não conta o mesmo texto duas vezes.
@@ -282,6 +293,7 @@ class EscribaController(private val services: EscribaServices, private val scope
         if (target.needsBook && book == null) return
         if (section == Section.Manuscrito && target != Section.Manuscrito) flushSave()
         if (section == Section.Enredo && target != Section.Enredo) map.flush()
+        if (section == Section.Universo && target != Section.Universo) flushEntrySave()
         if (target != Section.Manuscrito) focusMode = false
         section = target
         if (target == Section.Diagramacao) requestLayout(0)
@@ -289,6 +301,8 @@ class EscribaController(private val services: EscribaServices, private val scope
 
     fun closeBook() {
         flushSave()
+        flushEntrySave()
+        mentionIndex.clear()
         map.flush()
         map.reset()
         universeFocus = null
@@ -831,13 +845,40 @@ class EscribaController(private val services: EscribaServices, private val scope
 
     // ---------- Universo ----------
 
+    /** Grava a ficha na hora (criação, imagens, botões). */
     fun saveEntry(entry: UniverseEntry) {
         val b = book ?: return
+        putEntry(b, entry)
+        entrySaveJob?.cancel()
+        entrySaveJob = null
+        services.books.saveUniverse(b.path, b.universe)
+    }
+
+    /** Atualiza a ficha na tela e grava daqui a pouco: digitação não reescreve o `universe.json` a cada tecla. */
+    fun updateEntry(entry: UniverseEntry) {
+        val b = book ?: return
+        putEntry(b, entry)
+        entrySaveJob?.cancel()
+        entrySaveJob = scope.launch {
+            delay(ENTRY_SAVE_DELAY_MS)
+            entrySaveJob = null
+            services.books.saveUniverse(b.path, b.universe)
+        }
+    }
+
+    /** Grava agora a ficha que estava esperando (antes de sair do Universo, fechar o livro ou ler do disco). */
+    fun flushEntrySave() {
+        val job = entrySaveJob ?: return
+        job.cancel()
+        entrySaveJob = null
+        book?.let { services.books.saveUniverse(it.path, it.universe) }
+    }
+
+    private fun putEntry(b: OpenBook, entry: UniverseEntry) {
         val stamped = entry.copy(modifiedAt = services.now())
         val entries = b.universe.entries
         val updated = if (entries.any { it.id == entry.id }) entries.map { if (it.id == entry.id) stamped else it } else entries + stamped
-        b.universe = b.universe.copy(entries = updated)
-        services.books.saveUniverse(b.path, b.universe)
+        b.universe = b.universe.copy(entries = updated, schemaVersion = UNIVERSE_SCHEMA_VERSION)
     }
 
     fun newEntry(kind: EntryKind): UniverseEntry = UniverseEntry(services.newId(), kind, "")
@@ -845,22 +886,118 @@ class EscribaController(private val services: EscribaServices, private val scope
     /** Cria e grava uma ficha vazia, já pronta para edição. */
     fun createEntry(kind: EntryKind): UniverseEntry = newEntry(kind).also { saveEntry(it) }
 
-    /** Capítulos cujo texto cita [name] (sem diferenciar maiúsculas). */
-    fun chaptersMentioning(name: String): List<ChapterMeta> {
+    fun newId(): String = services.newId()
+
+    /** Capítulos cujo texto cita a ficha (nome ou apelidos, palavra inteira, sem acentos). */
+    fun chaptersMentioning(entry: UniverseEntry): List<ChapterMeta> {
         val b = book ?: return emptyList()
-        if (name.isBlank()) return emptyList()
-        return b.manifest.chapters.filter { meta ->
-            val body = if (meta.id == currentChapterId) editor.text else services.books.readChapter(b.path, meta.id)
-            body.contains(name.trim(), ignoreCase = true)
+        val ids = entryMentions(entry).chapters.map { it.chapterId }.toSet()
+        return b.manifest.chapters.filter { it.id in ids }
+    }
+
+    /** Painel "No manuscrito": em que capítulos a ficha é citada e quantas vezes. */
+    fun entryMentions(entry: UniverseEntry): EntryMentions {
+        val b = book ?: return EntryMentions(emptyList(), emptyList(), 0)
+        val chapters = b.manifest.chapters.map { meta ->
+            val version = if (meta.id == currentChapterId) editor.text.hashCode().toLong() shl 32 or 1L else meta.modifiedAt
+            Triple(meta.id, meta.title, version)
         }
+        return mentionIndex.mentions(entry, chapters) { id ->
+            if (id == currentChapterId) editor.text else services.books.readChapter(b.path, id)
+        }
+    }
+
+    /** Fichas citadas no capítulo aberto, com quantas vezes cada uma aparece (mais citadas primeiro). */
+    fun entriesInCurrentChapter(): List<Pair<UniverseEntry, Int>> {
+        val b = book ?: return emptyList()
+        val text = editor.text
+        return b.universe.entries.mapNotNull { e ->
+            val n = findMentions(text, e.searchTerms()).size
+            if (n > 0) e to n else null
+        }.sortedByDescending { it.second }
+    }
+
+    /** Abre o capítulo no Manuscrito com a citação selecionada. */
+    fun openMention(chapterId: String, match: TextMatch) {
+        flushEntrySave()
+        selectChapter(chapterId)
+        goTo(Section.Manuscrito)
+        val end = minOf(match.end, editor.text.length)
+        editor = editor.copy(selection = TextRange(minOf(match.start, end), end))
+        requestEditorFocus()
     }
 
     fun trashEntry(entry: UniverseEntry) {
         val b = book ?: return
+        flushEntrySave()
         services.trash.trashEntry(b.path, b.manifest.title, entry)
         b.universe = b.universe.copy(entries = b.universe.entries.filterNot { it.id == entry.id })
         services.books.saveUniverse(b.path, b.universe)
         trashItems = services.trash.list()
+        message = "Ficha “${entry.name.ifBlank { "sem nome" }}” foi para a lixeira."
+    }
+
+    /** Fichas deste livro que estão na lixeira. */
+    val entryTrash: List<TrashItem>
+        get() = book?.path?.let { path -> trashItems.filter { it.kind == TrashKind.Ficha && it.bookPath == path } }.orEmpty()
+
+    /**
+     * Escolhe uma imagem, copia para `assets/` do livro e devolve o caminho relativo e o tamanho em pixels
+     * (`null` se a pessoa desistir ou a imagem não puder ser lida).
+     */
+    suspend fun pickAndImportImage(title: String, extensions: List<String> = IMAGE_EXTENSIONS): Pair<String, Pair<Int, Int>>? {
+        val b = book ?: return null
+        val source = chooseOpenFile(title, extensions) ?: return null
+        val bytes = services.fs.readBytes(source)
+        val size = bytes?.let { imagePixelSize(it) }
+        if (bytes == null || size == null) {
+            message = "Não foi possível ler a imagem."
+            return null
+        }
+        return services.books.importAsset(b.path, bytes, source.substringAfterLast('.', "png")) to size
+    }
+
+    /** Escolhe uma imagem para a ficha: vira o retrato se ela ainda não tiver um, senão entra na galeria. */
+    fun addEntryImage(entryId: String, asPortrait: Boolean) {
+        scope.launch {
+            val (path, _) = pickAndImportImage(if (asPortrait) "Retrato" else "Imagem da ficha") ?: return@launch
+            addEntryImagePath(entryId, path, asPortrait)
+        }
+    }
+
+    /** Põe na ficha uma imagem que já está em `assets/` do livro. */
+    fun addEntryImagePath(entryId: String, path: String, asPortrait: Boolean) {
+        val entry = book?.universe?.entries?.firstOrNull { it.id == entryId } ?: return
+        val image = EntryImage(path)
+        val updated = when {
+            asPortrait && entry.portrait != null -> entry.copy(portrait = image, gallery = listOf(entry.portrait) + entry.gallery)
+            asPortrait || entry.portrait == null -> entry.copy(portrait = image)
+            else -> entry.copy(gallery = entry.gallery + image)
+        }
+        saveEntry(updated)
+    }
+
+    /** Troca o retrato por uma imagem da galeria (o retrato antigo volta para a galeria). */
+    fun makePortrait(entryId: String, path: String) {
+        val entry = book?.universe?.entries?.firstOrNull { it.id == entryId } ?: return
+        val chosen = entry.gallery.firstOrNull { it.path == path } ?: return
+        val rest = entry.gallery.filterNot { it.path == path }
+        saveEntry(entry.copy(portrait = chosen, gallery = listOfNotNull(entry.portrait) + rest))
+    }
+
+    /** Tira a imagem da ficha (o arquivo fica no livro: pode estar em uso em outro lugar). */
+    fun removeEntryImage(entryId: String, path: String) {
+        val entry = book?.universe?.entries?.firstOrNull { it.id == entryId } ?: return
+        saveEntry(
+            if (entry.portrait?.path == path) entry.copy(portrait = null)
+            else entry.copy(gallery = entry.gallery.filterNot { it.path == path }),
+        )
+    }
+
+    fun setPortraitFrame(entryId: String, frame: ImageFrame) {
+        val entry = book?.universe?.entries?.firstOrNull { it.id == entryId } ?: return
+        val portrait = entry.portrait ?: return
+        updateEntry(entry.copy(portrait = portrait.copy(frame = frame)))
     }
 
     // ---------- Enredo ----------
@@ -931,6 +1068,7 @@ class EscribaController(private val services: EscribaServices, private val scope
     // ---------- Lixeira ----------
 
     fun restoreFromTrash(item: TrashItem) {
+        flushEntrySave()
         when (val outcome = services.trash.restore(item)) {
             is RestoreOutcome.Restored -> {
                 if (book?.path == outcome.bookPath) reloadOpenBook()
@@ -950,6 +1088,7 @@ class EscribaController(private val services: EscribaServices, private val scope
     /** Restaura todos os [items] (os que estão visíveis no filtro da lixeira). */
     fun restoreAllFromTrash(items: List<TrashItem>) {
         flushSave()
+        flushEntrySave()
         val restored = services.trash.restoreAll(items)
         reloadOpenBook()
         refreshLibrary()
@@ -1231,6 +1370,7 @@ class EscribaController(private val services: EscribaServices, private val scope
 
     companion object {
         const val AUTOSAVE_DELAY_MS = 800L
+        const val ENTRY_SAVE_DELAY_MS = 300L
         const val LAYOUT_DELAY_MS = 350L
         const val HISTORY_DAYS = 84
         const val ACTIVE_GAP_MS = 30_000L

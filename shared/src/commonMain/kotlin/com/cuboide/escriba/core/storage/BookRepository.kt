@@ -8,6 +8,7 @@ import com.cuboide.escriba.core.model.BookSummary
 import com.cuboide.escriba.core.model.ChapterMeta
 import com.cuboide.escriba.core.model.Outline
 import com.cuboide.escriba.core.model.Universe
+import com.cuboide.escriba.core.universe.migrated
 
 /**
  * Formato de um livro no disco (pasta `Nome.escriba/`):
@@ -83,7 +84,8 @@ class BookRepository(
 
     fun loadUniverse(bookPath: String): Universe {
         val text = fs.readText(joinPath(bookPath, UNIVERSE)) ?: return Universe()
-        return runCatching { EscribaJson.decodeFromString(Universe.serializer(), text) }.getOrDefault(Universe())
+        // Fichas antigas viram blocos em memória; o arquivo só muda no próximo salvamento.
+        return runCatching { EscribaJson.decodeFromString(Universe.serializer(), text).migrated() }.getOrDefault(Universe())
     }
 
     fun saveUniverse(bookPath: String, universe: Universe) {

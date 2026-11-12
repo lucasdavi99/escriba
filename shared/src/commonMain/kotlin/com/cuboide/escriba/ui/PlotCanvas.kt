@@ -621,7 +621,7 @@ private fun HandlesLayer(board: Board, view: BoardView, active: Set<String>, acc
 // ---------- nós ----------
 
 /** Miniaturas decodificadas, por livro e caminho (as últimas usadas ficam em memória). */
-private object BoardImages {
+internal object BoardImages {
     private val cache = object : LinkedHashMap<String, ImageBitmap>(64, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ImageBitmap>?) = size > 60
     }
@@ -631,7 +631,7 @@ private object BoardImages {
 }
 
 @Composable
-private fun rememberBoardImage(c: EscribaController, path: String?): ImageBitmap? {
+internal fun rememberBoardImage(c: EscribaController, path: String?): ImageBitmap? {
     val bookPath = c.book?.path
     val key = "$bookPath|$path"
     val cached = path?.let { BoardImages.get(key) }
@@ -645,12 +645,12 @@ private fun rememberBoardImage(c: EscribaController, path: String?): ImageBitmap
 }
 
 /** Tamanho (só a proporção importa) da imagem já carregada do nó, para os gestos de enquadramento. */
-private fun loadedImageSize(c: EscribaController, path: String?): Pair<Float, Float>? =
+internal fun loadedImageSize(c: EscribaController, path: String?): Pair<Float, Float>? =
     path?.let { BoardImages.get("${c.book?.path}|$it") }?.let { it.width.toFloat() to it.height.toFloat() }
 
 /** Imagem desenhada segundo o enquadramento do nó (ponto focal, zoom, preencher ou inteira). */
 @Composable
-private fun FramedImage(image: ImageBitmap?, frame: ImageFrame, modifier: Modifier) {
+internal fun FramedImage(image: ImageBitmap?, frame: ImageFrame, modifier: Modifier) {
     Canvas(modifier.clipToBounds()) {
         if (image == null) return@Canvas
         val r = placeImage(size.width, size.height, image.width.toFloat(), image.height.toFloat(), frame)

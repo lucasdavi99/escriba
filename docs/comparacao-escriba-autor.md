@@ -47,7 +47,7 @@ Legenda: ✅ tem · 🟡 tem parte · ❌ não tem. O esforço supõe uma pessoa
 | 14 | Sinônimos | `renderer/sinonimos/` (545 KB) | ❌ | Tesauro pt-BR com licença livre (por exemplo, o do LibreOffice; conferir a licença), indexado em SQLite ou JSON | M |
 | 15 | Repetições e ecos de palavras | `repetition:analyze`, `ecos-universais` | ❌ | Detector próprio: mesma palavra ou radical a menos de N palavras de distância, ignorando palavras comuns | M |
 | 16 | Legibilidade | `legibilidade.css` | ❌ | Índice Flesch adaptado ao português (Martins et al.), frases longas e advérbios em excesso | P |
-| 17 | Contradições | `manuscrito/contradicoes` | ❌ | Fatos das fichas (idade, cor dos olhos…) comparados com o texto: regras simples e depois IA | G |
+| 17 | Contradições | `manuscrito/contradicoes` | ❌ | Fatos "selados" das fichas (olhos, cabelo, mão…) comparados com o texto, por capítulo e em relatório do livro. Detalhes em 9.3 | G |
 | 18 | Resumo de capítulo | `chapter-summary-core.js` | ❌ | Via IA (item 56) ou resumo por extração | P (com IA) |
 
 ### Planejamento
@@ -64,14 +64,14 @@ Legenda: ✅ tem · 🟡 tem parte · ❌ não tem. O esforço supõe uma pessoa
 
 | # | Funcionalidade | Evidência | Escriba | O que é preciso | Esforço |
 |---|---|---|---|---|---|
-| 24 | Fichas por tipo | `universe:*` | ✅ | — | — |
-| 25 | Onde a ficha aparece | `universe:fichas-do-livro` | ✅ | — | — |
+| 24 | Fichas por tipo | `universe:*` | ✅ (11/11) | Ficha por tipo com subtítulo, blocos de texto rico, atributos padrão e livres e seções próprias (U1, U3) | — |
+| 25 | Onde a ficha aparece | `universe:fichas-do-livro` | ✅ (11/11) | Contagem por capítulo, apelidos, sem acentos, abre o capítulo na citação (U5) | — |
 | 26 | Relações entre fichas (grafo) | `universe-links-*.js` | ❌ | Lista `relations` (de, para, tipo) e grafo com layout de forças em Canvas | G |
-| 27 | Retratos e imagens nas fichas | `universe-portrait-core.js` | ❌ | Imagem por ficha, recorte circular | P |
-| 28 | Universo compartilhado entre livros | `universe:link-project`, `unificar:*` | ❌ | Universo como entidade própria, referenciada por vários livros | M |
+| 27 | Retratos e imagens nas fichas | `universe-portrait-core.js` | ✅ (11/11) | Retrato com enquadramento e galeria por ficha (U2) | — |
+| 28 | Universo compartilhado entre livros | `universe:link-project`, `unificar:*` | ❌ | Acervo de universos e unificação de livros da saga (U8, U9) | M–G |
 | 29 | Árvore genealógica | `ferramentas/arvore-core.js`, `lentes/familia` | ❌ | Vem das relações do item 26; desenho em camadas | M |
-| 30 | Calendário do mundo e linha do tempo | `calendario-mundo-core.js`, `linha-do-tempo-core.js` | ❌ | Calendário configurável (meses e dias próprios) e eventos | M |
-| 31 | Idiomas inventados | `idiomas-*.js` | ❌ | Dicionário do idioma, regras de fonologia e gerador de palavras | M |
+| 30 | Calendário do mundo e linha do tempo | `calendario-mundo-core.js`, `linha-do-tempo-core.js` | ❌ | Meses, semana, eras, festas e estações; luas, sol e constelações; astrolábio e céu animado; datas do Enredo e idades (9.4; U10 a U13) | M–G |
+| 31 | Idiomas inventados | `idiomas-*.js` | ❌ | Gerador por semente e estilo, gramática, tradutor, variedades, nomes e alfabeto próprio como fonte (9.5; U14 a U16) | G–GG |
 | 32 | Mapas | `renderer/mapas/` (2.722 arquivos) | ❌ | Editor em Canvas com camadas, terrenos e carimbos. A arte precisa ser própria ou CC0 (por exemplo, Kenney). É o item mais caro em arte | GG |
 
 ### Progresso e dados
@@ -119,6 +119,8 @@ Legenda: ✅ tem · 🟡 tem parte · ❌ não tem. O esforço supõe uma pessoa
 Considerando 55 funcionalidades (o item 57 fica de fora):
 
 - **Por contagem (18/10/2026):** 15 completas e 6 parciais, ou cerca de **33%**. A contagem anterior estava inflada: tinha 12 completas, e o roteiro de cenas (item 19) caiu para parcial ao comparar os modelos.
+- **Ajuste (11/11/2026):** depois do levantamento do Universo (seção 9), os itens 24 e 25 caíram de completos para
+  parciais. No mesmo dia, a Fase 1 do Universo (9.6) completou os itens 24, 25 e 27.
 - **Por esforço:** bem menos, entre 5% e 10%. O que falta inclui as partes mais caras do Autor: diagramação, revisão
   PT-BR com dicionários, mapas com arte, IA e sincronização.
 
@@ -213,7 +215,7 @@ seção 2 foi atualizada. Abaixo, o que ainda falta, em ordem de prioridade para
 | Manuscrito | Revisão ortográfica, autocorreção de acentos, sinônimos, arrastar capítulos | Ver seção 7 (o resto já tem) | M–G |
 | Roteiro | 10 modelos de estrutura, salvar modelo próprio, vista em lista e em mural | 2 modelos, só quadro por ato | P |
 | Enredo | Quadro livre infinito: cartões, personagens/lugares, imagens, textos, ligações com legenda de cores, arranjo automático, vistas "Linha do tempo" e "Família" | 🟡 tudo menos as vistas "Linha do tempo" e "Família" e o minimapa | M |
-| Universo | Retratos, relações, calendário do mundo (modelos de meses e semanas), idiomas inventados (escrita própria, tradutor, nomes com significado), Acervo de universos compartilhados entre livros, Unificar livros | Só fichas com resumo, notas e etiquetas | M–G cada |
+| Universo | Fichas com atributos, selo e retrato, calendário do mundo, idiomas inventados, Acervo e Unificar livros. Levantamento completo na seção 9 | Só fichas com resumo, notas e etiquetas | M–G cada |
 | Novels | Trechos do manuscrito viram capítulos de uma novel, prontos para colar em plataformas | ❌ | M |
 | Diagramação | Livro em páginas (formato, lombada, tema, numeração, tipografia do corpo, hifenização, capítulo abrindo em página ímpar), "Gerar PDF", e montagem de capa | ❌ | GG |
 | Música | Biblioteca de faixas, álbuns e playlists para ouvir enquanto escreve | ❌ | M |
@@ -240,3 +242,183 @@ seção 2 foi atualizada. Abaixo, o que ainda falta, em ordem de prioridade para
    compartilhado entre livros.
 7. **Grandes módulos:** quadro de enredo livre, Novels, Agenda, Música, idiomas inventados, diagramação com PDF
    para gráfica, mapas e IA.
+
+## 9. Universo: paridade com o Autor (11/11/2026)
+
+Levantamento feito usando o Autor 1.1.25 no livro do usuário, com fichas de teste criadas e removidas em seguida.
+Os comportamentos que não deu para disparar na tela (sem outra ficha ou porque o clique não tem volta) foram
+confirmados pelos textos da interface no pacote do app, só para entender o comportamento. Nada disso deve ser copiado.
+
+O Universo do Escriba hoje tem quatro tipos de ficha (Personagens, Locais, Grupos, Lore). Cada ficha tem nome,
+resumo, anotações, etiquetas e "aparece em", e a tela tem um filtro por nome e etiqueta.
+
+### 9.1 Estrutura
+
+- O livro tem seis abas: **Personagens, Locais, Grupos, Lore, Calendário e Idiomas**. Calendário e Idiomas são do livro;
+  as outras quatro também existem nos universos do Acervo.
+- **Acervo**: universos independentes de livro, que podem servir vários livros.
+  - "Novo universo" pede nome e descrição.
+  - **"Importar do projeto atual"** copia na hora todas as fichas do livro para um universo novo.
+  - **"Trazer de um livro"** mostra as fichas agrupadas por tipo, com caixa de seleção e busca. Avisa quando já existe
+    ficha com o mesmo nome, e a cópia leva as imagens junto.
+- **Unificar livros**: livros da mesma saga passam a usar as mesmas fichas, e o nome da saga é opcional. Fichas de
+  mesmo nome viram uma só, e o que era diferente vai para uma seção "Em ‹outro livro›". Antes de juntar, o app guarda
+  uma cópia das fichas de cada livro.
+- **Lista**:
+  - Cards com o retrato, ou as iniciais quando não há retrato, e um trecho da descrição; o × aparece ao passar o mouse.
+  - A busca encontra por nome, apelido e texto da ficha.
+  - Dentro da ficha, uma faixa no topo mostra as fichas do mesmo tipo, com um botão "+ Novo".
+- **Lixeira das fichas**, uma por livro, aberta pelo botão "Lixeira (n)" no topo do Universo. Os itens mostram tipo,
+  data e dias restantes, e podem ser restaurados ou apagados de vez. Guarda por 60 dias e vai junto com o livro no backup.
+- Apagar um universo do Acervo pede confirmação e manda o universo para a lixeira geral, por 60 dias.
+
+### 9.2 Fichas
+
+Todas as fichas têm o mesmo esqueleto:
+
+- **Retrato**: entra sem tela de recorte. Depois dá para preencher a moldura ou mostrar a imagem inteira, aproximar e
+  afastar (botões ou roda do mouse) e voltar ao enquadramento.
+- **Galeria**: cada imagem tem "Tornar retrato" e "Remover".
+- **Blocos de texto rico**: cada um abre um editor em janela com negrito, itálico, sublinhado, listas e título.
+- **"+ Nova seção"**: blocos com título e texto definidos pelo autor, que podem ser apagados.
+- **Atributos**: campos curtos, alguns já definidos para o tipo de ficha. "+ Atributo" acrescenta um campo livre, com
+  rótulo e valor.
+- **Painel "No manuscrito"** (veja 9.3).
+
+| Tipo | Título e subtítulo | Blocos | Atributos |
+|---|---|---|---|
+| Personagem | Nome · Papel na história | Descrição física, Personalidade, Arco do personagem, Aliados, Inimigos, Notas; Frase marcante | Apelidos, Grupo/subdivisão, Idade, Nasceu, Morreu (em branco = vivo), Ele ou ela, Olhos, Cabelo, Mão, Marca, Altura e porte, Pele, Corpo, Espécie/raça |
+| Local | Nome · Tipo (cidade, floresta…) | Descrição, Notas | Outros nomes, Grupo/subdivisão, Clima/atmosfera, Habitantes |
+| Grupo | Nome · Tipo (facção, guilda…) | Objetivo, Descrição, Notas | Outros nomes, Reino/aliança, Membros-chave |
+| Lore | Título · Categoria (magia, história…) | Conteúdo, Notas | Outros nomes, Grupo/subdivisão |
+
+Observações:
+
+- **Idade** é um campo de texto livre. A ficha não calcula a idade a partir de "Nasceu": a conta é feita na Linha do
+  tempo do Enredo, a partir do "presente da história" do calendário.
+- **Aliados** e **Inimigos** são texto livre, um nome por linha. O campo não sugere nem liga fichas.
+
+### 9.3 Selo, "No manuscrito" e contradições
+
+- **Selo.** Os atributos de aparência e identidade têm um marcador (selo): Grupo, Ele ou ela, Olhos, Cabelo, Mão,
+  Marca, Altura e porte, Pele, Corpo e Espécie. O que estiver nesses campos vira "fato selado", e o Manuscrito confere
+  esses fatos contra o texto.
+- **"Para conferir"**:
+  - O app lê a Descrição física e propõe os fatos que encontrou, com um botão **"Selar na ficha"** que copia esses
+    fatos para os campos com selo.
+  - Testado com "Alto e magro, olhos azuis e cabelo ruivo, canhoto". O app propôs "cabelo ruivo / azul" e "alto e
+    magro", ou seja, juntou a cor dos olhos à do cabelo e ignorou "canhoto".
+  - Também não avisou que o campo Olhos já dizia "verdes". A ideia é boa, mas a extração é frágil.
+- **"No manuscrito"**:
+  - Mostra "Citado em N de M capítulos", com o número de ocorrências por capítulo e link para abrir cada um.
+  - Procura pelo nome e pelos apelidos ou "outros nomes", e diz em quais termos procurou.
+  - Avisa que nome escrito não quer dizer presença na cena.
+  - Também aponta quando o mesmo nome está em Aliados e em Inimigos, e quando a relação está desencontrada entre duas
+    fichas (aliado numa, inimigo na outra).
+- **Contradições** ficam no Manuscrito:
+  - Podem ser ligadas e desligadas, e mostram o que há "neste capítulo" e "nos outros capítulos".
+  - "Onde foi dito" leva ao trecho que contradiz.
+  - O "Relatório do livro inteiro" serve para conferir antes de publicar. Ele conta os fatos selados por ficha, lista
+    as fichas que ainda têm fatos sem selo e mostra as idades que o texto menciona sem acusá-las, porque o personagem
+    envelhece.
+
+### 9.4 Calendário do mundo
+
+- **Começo**: são três modelos.
+  - Um exemplo completo, com meses e semana próprios, duas luas, duas eras, festas e constelações.
+  - "Como o nosso", com 12 meses, semana de 7 dias, ano bissexto e uma lua.
+  - "Em branco", com 12 meses de 30 dias.
+  - Sem calendário próprio, o livro usa datas simples ("ano 12", "3 de março, 12").
+- **Estrutura editável**:
+
+  | Bloco | O que se define |
+  |---|---|
+  | Calendário | Nome |
+  | Meses | Nome e número de dias; pode haver um mês curto de dias "fora do ano" |
+  | Dias da semana | Lista livre de nomes |
+  | Luas | Cor, nome e ciclo em dias |
+  | Estações | Cor, nome, mês e dia de início |
+  | Festas | Nome, mês, dia e descrição |
+  | Eras | Nome, sigla e ano inicial |
+  | Constelações | Cor, nome e o dia em que ficam no alto à meia-noite |
+  | Sol | Mês e dia do dia mais longo; horas de luz no dia mais longo e no mais curto; horas do dia; temporada e janela de eclipses |
+  | Presente da história | A data de onde a Linha do tempo parte e a idade das fichas é contada |
+
+  Renomear um mês não perde datas, porque o "Quando" dos cartões do Enredo guarda o texto. Apagar um mês deixa as datas
+  dele sem lugar, e a Linha do tempo aponta isso.
+- **Tela principal**:
+  - **Astrolábio**: um disco com os meses no anel de fora e as estações numa faixa colorida, mostrando as luas na fase
+    do dia, a festa e a era. Clicar num mês leva a data até ele.
+  - **Céu da cena**: hora com um cursor de 0 a 24h e atalhos (meia-noite, nascer, meio-dia, pôr do sol). Mostra luas e
+    constelações nomeadas na posição certa. "Passar o dia" anima o céu: estrelas e luas andam, o sol nasce e aparecem
+    partículas da estação.
+  - **Resumo do dia**: horas de luz e a diferença para ontem, fase e % de iluminação de cada lua, e o dia da estação.
+  - **Ano**: navegação ‹ ano › e "Ir ao presente". O gráfico "Estações e luz" mostra o ano inteiro (dia claro,
+    crepúsculo e noite), com luas cheias e eclipses, e diz quando começa a próxima estação.
+  - **Grade do mês**:
+    - Usa a semana própria e mostra as fases das luas em cada dia.
+    - Marca festas e cartões do Enredo naquele dia.
+    - Ao clicar num dia, mostra estação, festa, sol e eclipses, com o botão "Fazer deste dia o presente da história".
+  - **Painel das luas**: ciclo, fase, % iluminada, próxima cheia e próxima nova, régua de fases e aviso de "todas as
+    luas cheias juntas".
+  - **Rodapé**: uma linha de resumo (meses, dias, semana, luas, estações, festas, eras, constelações, sol e eclipses)
+    e a legenda dos símbolos.
+- **O que o calendário não faz**: não mostra aniversários das fichas.
+
+### 9.5 Idiomas do mundo
+
+- **Geração**:
+  - A língua é gerada a partir do nome do livro e de um **estilo**. São seis estilos (fluido, áspero, solar, nórdico,
+    insular e ritual), e cada um muda os sons e o clima da língua.
+  - O mesmo livro sempre gera a mesma língua, e o número da língua aparece na tela.
+  - "Sortear outra língua" sorteia outra semente, e "Voltar à anterior" desfaz um passo. Tudo fica salvo no livro.
+- **A língua**: nome, assinatura na escrita própria, consoantes e vogais.
+- **Gramática**: ordem da frase, posição do adjetivo, acento tônico, sufixos de plural, passado, futuro, negação e
+  honorífico, "lugar de…" e direção da escrita. Também há regras como repetir a primeira sílaba.
+- **Tradutor**:
+  - Recebe uma frase em português e devolve a frase na escrita da língua, mais a transliteração.
+  - Mostra um glossário palavra por palavra: palavra, significado e pronúncia, com a sílaba tônica marcada.
+  - Palavras que a língua ainda não tem são criadas na hora e marcadas como "palavra nova".
+  - Funciona em todas as variedades.
+  - Tem dois botões de cópia: "na escrita da língua" (o texto aparece com o alfabeto inventado no Manuscrito, na
+    Diagramação e no PDF) e "em letras nossas".
+- **Nomes com significado**: listas de pessoas (com gênero) e de lugares, com pronúncia e sentido. "Outros nomes"
+  gera mais.
+- **Nome de fora**: adapta um nome estrangeiro aos sons da língua e mostra como fica na escrita.
+- **A mesma palavra em cada canto**: para uma lista fixa de palavras básicas (água, fogo, mar, sol, noite…), mostra a
+  evolução no tempo (proto → antigo → moderno, explicando cada regra sonora), nas regiões, nas classes sociais (corte,
+  porto) e nas situações (formal, íntimo).
+- **A escrita**: um alfabeto próprio, com um glifo por som.
+
+### 9.6 O que falta no Escriba
+
+| # | Funcionalidade | O que é preciso | Esforço |
+|---|---|---|---|
+| U1 | Ficha estruturada por tipo | Campos de título/subtítulo, blocos e atributos padrão por tipo (tabela 9.2), atributos livres e seções próprias. Migrar `summary`/`notes` para os blocos | M |
+| U2 | Retrato e galeria | Imagens em `assets/` do livro, enquadramento (zoom e posição), "tornar retrato", retrato no card | P–M |
+| U3 | Blocos com texto rico | Reaproveitar o editor do Manuscrito (Markdown) num diálogo | P |
+| U4 | Busca por apelido e por texto da ficha | Incluir apelidos/outros nomes e o conteúdo dos blocos no filtro | P |
+| U5 | "No manuscrito" completo | Contagem por capítulo, procurar também apelidos, abrir o capítulo | P |
+| U6 | Selo e contradições | Atributos com selo; extração de fatos da descrição física; verificação no Manuscrito (por capítulo e relatório do livro); aviso de aliados e inimigos incoerentes | G |
+| U7 | Lixeira dentro do Universo | Atalho para as fichas da lixeira atual, que já guarda fichas | P |
+| U8 | Acervo de universos | Universo fora do livro, importar do livro e trazer fichas escolhidas | M |
+| U9 | Unificar livros (saga) | Fichas compartilhadas por vários livros, com fusão por nome e cópia de segurança antes | M–G |
+| U10 | Calendário do mundo: núcleo | Meses, semana, eras, festas, estações, "presente da história", grade do mês e três modelos | M |
+| U11 | Calendário: astronomia | Luas com fases, sol e duração do dia, eclipses, constelações | M |
+| U12 | Calendário: visual | Astrolábio, céu animado e gráfico do ano | G |
+| U13 | Datas ligadas | "Quando" das cenas do Enredo no calendário, idade das fichas na Linha do tempo (item 21) | M |
+| U14 | Idiomas: gerador | Semente e estilo, fonologia, gramática, léxico gerado, nomes com significado, nome de fora | G |
+| U15 | Idiomas: tradutor e variedades | Tradução palavra a palavra com gramática, palavras novas, evolução por tempo, região, classe e registro | G |
+| U16 | Idiomas: escrita própria | Alfabeto gerado como fonte que apareça no editor, na Diagramação e no PDF | G |
+
+**Situação (11/11/2026):** Fase 1 entregue: **U1, U2, U3, U4, U5 e U7** prontos.
+- Fichas antigas viram blocos ao abrir o livro (`core/universe/EntryMigration.kt`).
+- O esquema de cada tipo está em `core/universe/EntrySchemas.kt`.
+- As menções ficam em `core/universe/Mentions.kt`.
+- A tela nova está em `ui/UniverseScreen.kt`.
+- Testes: `UniverseTest.kt` (shared) e `UniverseScreenTest.kt` (desktopApp).
+
+Calendário e Idiomas aparecem como abas desativadas até as fases 2 e 5.
+
+Ordem sugerida: **U1, U3, U4, U5, U2** (a ficha fica no nível do Autor); depois **U10 e U13** (calendário útil para a
+história); depois **U8 e U6**; e, por último, **U11, U12, U9 e U14–U16** (os mais caros e menos essenciais).
