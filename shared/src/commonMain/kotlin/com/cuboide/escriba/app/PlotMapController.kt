@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.cuboide.escriba.core.board.Board
 import com.cuboide.escriba.core.board.BoardNode
+import com.cuboide.escriba.core.board.ImageFrame
 import com.cuboide.escriba.core.board.NodeKind
 import com.cuboide.escriba.core.board.NodeSizes
 import com.cuboide.escriba.core.board.PlotBoards
@@ -57,6 +58,8 @@ class PlotMapController internal constructor(
     var selectedEdge by mutableStateOf<String?>(null); private set
     /** Nó cujo texto está sendo editado no próprio quadro. */
     var editingId by mutableStateOf<String?>(null); private set
+    /** Nó cuja imagem está sendo enquadrada (arrastar move, roda amplia). */
+    var framingId by mutableStateOf<String?>(null); private set
 
     private val undoStack = ArrayDeque<PlotBoards>()
     private val redoStack = ArrayDeque<PlotBoards>()
@@ -118,6 +121,7 @@ class PlotMapController internal constructor(
         val bd = board
         selection = selection.filter { bd?.node(it) != null }.toSet()
         if (editingId != null && bd?.node(editingId!!) == null) editingId = null
+        if (framingId != null && bd?.node(framingId!!)?.image == null) framingId = null
         if (selectedEdge != null && bd?.edge(selectedEdge!!) == null) selectedEdge = null
     }
 
@@ -151,6 +155,7 @@ class PlotMapController internal constructor(
         selection = emptySet()
         selectedEdge = null
         editingId = null
+        framingId = null
     }
 
     // ---------- seleção ----------
@@ -158,6 +163,7 @@ class PlotMapController internal constructor(
     fun select(id: String, additive: Boolean = false) {
         selectedEdge = null
         if (editingId != id) editingId = null
+        if (framingId != id) framingId = null
         selection = when {
             !additive -> setOf(id)
             id in selection -> selection - id
@@ -168,6 +174,7 @@ class PlotMapController internal constructor(
     fun selectEdge(id: String) {
         selection = emptySet()
         editingId = null
+        framingId = null
         selectedEdge = id
     }
 
@@ -175,6 +182,7 @@ class PlotMapController internal constructor(
         selection = emptySet()
         selectedEdge = null
         editingId = null
+        framingId = null
     }
 
     // ---------- nós ----------
@@ -222,13 +230,52 @@ class PlotMapController internal constructor(
             editBoard { bd ->
                 bd.updateNode(id) { n ->
                     val grow = n.kind == NodeKind.Cartao && n.image == null && n.height < NodeSizes.CARD_WITH_IMAGE_H
-                    n.copy(image = relative, height = if (grow) NodeSizes.CARD_WITH_IMAGE_H else n.height)
+                    n.copy(image = relative, height = if (grow) NodeSizes.CARD_WITH_IMAGE_H else n.height, frame = ImageFrame())
                 }
             }
         }
     }
 
-    fun removeNodeImage(id: String) = editBoard { bd -> bd.updateNode(id) { it.copy(image = null) } }
+    fun removeNodeImage(id: String) {
+        if (framingId == id) framingId = null
+        editBoard { bd -> bd.updateNode(id) { it.copy(image = null, frame = ImageFrame()) } }
+    }
+
+    // ---------- enquadramento da imagem ----------
+
+    /** Entra no modo de ajustar a imagem do nó; tudo o que se ajustar até sair vira um passo só de desfazer. */
+    fun startFraming(id: String) {
+        if (board?.node(id)?.image == null) return
+        checkpoint()
+        select(id)
+        editingId = null
+        framingId = id
+    }
+
+    fun stopFraming() {
+        framingId = null
+    }
+
+    /** Enquadramento ao vivo (durante arraste e roda), fora do desfazer: o passo foi guardado em [startFraming]. */
+    fun setFrame(id: String, frame: ImageFrame) = editBoard(undoable = false) { bd -> bd.updateNode(id) { it.copy(frame = frame) } }
+
+    /** Altura da imagem no cartão, como fração da altura do cartão. */
+    fun setImageRatio(id: String, ratio: Float) = editBoard(undoable = false) { bd ->
+        bd.updateNode(id) { it.copy(imageRatio = ratio.coerceIn(ImageFrame.MIN_CARD_RATIO, ImageFrame.MAX_CARD_RATIO)) }
+    }
+
+    fun resetFrame(id: String) = editBoard(undoable = framingId != id) { bd ->
+        bd.updateNode(id) { it.copy(frame = ImageFrame(), imageRatio = ImageFrame.DEFAULT_CARD_RATIO) }
+    }
+
+    /** Nó de imagem: altura volta a seguir a proporção da imagem, que aparece inteira. */
+    fun fitNodeToImage(id: String) {
+        val b = owner.book ?: return
+        val node = board?.node(id) ?: return
+        val bytes = node.image?.let { services.books.readAsset(b.path, it) } ?: return
+        val (w, h) = imagePixelSize(bytes) ?: return
+        editBoard { bd -> bd.updateNode(id) { it.copy(height = it.width * h / w.coerceAtLeast(1), frame = ImageFrame()) } }
+    }
 
     private suspend fun pickImage(title: String): Pair<String, Pair<Int, Int>>? {
         val b = owner.book ?: return null
@@ -256,6 +303,7 @@ class PlotMapController internal constructor(
         if (board?.node(id) == null || editingId == id) return
         checkpoint()
         select(id)
+        framingId = null
         editingId = id
     }
 

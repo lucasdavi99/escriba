@@ -1,7 +1,6 @@
 package com.cuboide.escriba.ui
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -24,9 +23,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Link
+import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -51,6 +53,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
@@ -70,7 +73,6 @@ import androidx.compose.ui.input.pointer.AwaitPointerEventScope
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.isShiftPressed
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -81,12 +83,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cuboide.escriba.app.EscribaController
 import com.cuboide.escriba.core.board.Board
 import com.cuboide.escriba.core.board.BoardNode
+import com.cuboide.escriba.core.board.ImageFrame
+import com.cuboide.escriba.core.board.imageRect
+import com.cuboide.escriba.core.board.panned
+import com.cuboide.escriba.core.board.placeImage
+import com.cuboide.escriba.core.board.zoomed
 import com.cuboide.escriba.core.board.NodeKind
 import com.cuboide.escriba.core.board.NodeSizes
 import com.cuboide.escriba.core.board.Pt
@@ -109,6 +117,8 @@ import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.pow
+import kotlin.math.roundToInt
 
 const val BOARD_MIN_ZOOM = 0.25f
 const val BOARD_MAX_ZOOM = 2.5f
@@ -214,6 +224,7 @@ fun PlotCanvas(
         hovered?.let { add(it) }
         map.selection.singleOrNull()?.let { add(it) }
         map.editingId?.let { remove(it) }
+        map.framingId?.let { remove(it) }
     }
 
     fun hitTest(bd: Board, p: Pt): Hit {
@@ -247,6 +258,7 @@ fun PlotCanvas(
                         when {
                             linkMode -> onLinkModeChange(false)
                             map.editingId != null -> map.stopEditing()
+                            map.framingId != null -> map.stopFraming()
                             else -> map.clearSelection()
                         }
                         focus.requestFocus(); true
@@ -269,7 +281,17 @@ fun PlotCanvas(
                             PointerEventType.Scroll -> {
                                 val dy = ch.scrollDelta.y
                                 if (dy != 0f) {
-                                    view.zoomBy(if (dy > 0) 1f / 1.12f else 1.12f, ch.position)
+                                    // Proporcional ao giro: touchpads mandam frações, rodas mandam passos inteiros.
+                                    val factor = 1.12f.pow(-dy.coerceIn(-5f, 5f))
+                                    // Na imagem em ajuste, a roda amplia a imagem em vez do quadro.
+                                    val framed = map.framingId?.let { id -> current.nodes.firstOrNull { it.id == id } }
+                                    val r = framed?.imageRect()
+                                    val size = loadedImageSize(c, framed?.image)
+                                    if (framed != null && r != null && size != null && r.contains(view.toBoard(ch.position))) {
+                                        map.setFrame(framed.id, framed.frame.zoomed(factor, r.width, r.height, size.first, size.second))
+                                    } else {
+                                        view.zoomBy(factor, ch.position)
+                                    }
                                     ch.consume()
                                 }
                             }
@@ -300,7 +322,6 @@ fun PlotCanvas(
                         map.stopEditing()
                     }
                     focus.requestFocus()
-                    val hit = hitTest(bd, start)
                     val slop = viewConfiguration.touchSlop
                     var moved = false
                     var released = false
@@ -327,6 +348,31 @@ fun PlotCanvas(
                         lastClickAt = now
                         return double
                     }
+
+                    // Imagem em ajuste: arrastar move a imagem; a borda de baixo (cartão) muda a altura dela.
+                    map.framingId?.let { id ->
+                        val n = bd.nodes.firstOrNull { it.id == id }
+                        val r = n?.imageRect()
+                        if (n != null && r != null) {
+                            val tol = HANDLE_DP / view.zoom
+                            val onHeightHandle = n.kind == NodeKind.Cartao && abs(start.y - r.bottom) <= tol && start.x >= r.x && start.x <= r.right
+                            if (onHeightHandle) {
+                                down.consume()
+                                track { d, _ -> map.setImageRatio(n.id, (r.height + d.y) / n.height) }
+                                return@awaitEachGesture
+                            }
+                            if (r.contains(start)) {
+                                down.consume()
+                                val size = loadedImageSize(c, n.image)
+                                track { d, _ ->
+                                    if (size != null) map.setFrame(n.id, n.frame.panned(d.x, d.y, r.width, r.height, size.first, size.second))
+                                }
+                                return@awaitEachGesture
+                            }
+                        }
+                        map.stopFraming()
+                    }
+                    val hit = hitTest(bd, start)
 
                     when (hit) {
                         is Hit.ResizeHandle -> {
@@ -367,7 +413,12 @@ fun PlotCanvas(
                                 if (move != null && released) map.moveNodes(move.ids, move.dx, move.dy)
                             } else if (released && !shift) {
                                 if (wasSelected && map.selection.size > 1) map.select(n.id)
-                                if (isDoubleClick(n.id)) map.startEditing(n.id)
+                                if (isDoubleClick(n.id)) {
+                                    // Duplo clique na imagem ajusta a imagem; no resto do nó, edita o texto (ou a legenda).
+                                    val r = n.imageRect()
+                                    val onCaption = n.kind == NodeKind.Imagem && start.y > n.bottom - 40f
+                                    if (r != null && r.contains(start) && !onCaption) map.startFraming(n.id) else map.startEditing(n.id)
+                                }
                             }
                         }
                         is Hit.Edge -> {
@@ -572,7 +623,7 @@ private fun HandlesLayer(board: Board, view: BoardView, active: Set<String>, acc
 /** Miniaturas decodificadas, por livro e caminho (as últimas usadas ficam em memória). */
 private object BoardImages {
     private val cache = object : LinkedHashMap<String, ImageBitmap>(64, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ImageBitmap>?) = size > 120
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ImageBitmap>?) = size > 60
     }
 
     fun get(key: String): ImageBitmap? = synchronized(cache) { cache[key] }
@@ -587,10 +638,80 @@ private fun rememberBoardImage(c: EscribaController, path: String?): ImageBitmap
     val state = produceState(cached, key) {
         if (path == null || value != null) return@produceState
         value = withContext(Dispatchers.Default) {
-            c.layoutImage(path)?.let { decodeImageThumbnail(it, 720) }?.also { BoardImages.put(key, it) }
+            c.layoutImage(path)?.let { decodeImageThumbnail(it, 1280) }?.also { BoardImages.put(key, it) }
         }
     }
     return state.value
+}
+
+/** Tamanho (só a proporção importa) da imagem já carregada do nó, para os gestos de enquadramento. */
+private fun loadedImageSize(c: EscribaController, path: String?): Pair<Float, Float>? =
+    path?.let { BoardImages.get("${c.book?.path}|$it") }?.let { it.width.toFloat() to it.height.toFloat() }
+
+/** Imagem desenhada segundo o enquadramento do nó (ponto focal, zoom, preencher ou inteira). */
+@Composable
+private fun FramedImage(image: ImageBitmap?, frame: ImageFrame, modifier: Modifier) {
+    Canvas(modifier.clipToBounds()) {
+        if (image == null) return@Canvas
+        val r = placeImage(size.width, size.height, image.width.toFloat(), image.height.toFloat(), frame)
+        drawImage(
+            image,
+            dstOffset = IntOffset(r.x.roundToInt(), r.y.roundToInt()),
+            dstSize = IntSize(r.width.roundToInt(), r.height.roundToInt()),
+            filterQuality = FilterQuality.High,
+        )
+    }
+}
+
+/** Sobre a imagem em ajuste: contorno, dica, alça da altura (cartão) e botões de zoom, modo e concluir. */
+@Composable
+private fun FramingOverlay(c: EscribaController, node: BoardNode, image: ImageBitmap?, isCard: Boolean) {
+    val scheme = MaterialTheme.colorScheme
+    val frame = node.frame
+    val r = node.imageRect()
+    fun zoom(f: Float) {
+        if (image == null || r == null) return
+        c.map.setFrame(node.id, frame.zoomed(f, r.width, r.height, image.width.toFloat(), image.height.toFloat()))
+    }
+    Box(Modifier.fillMaxSize().border(2.dp, scheme.primary).semantics { contentDescription = "Ajustando imagem" }) {
+        Text(
+            "Arraste para mover · roda: zoom",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.White,
+            maxLines = 1,
+            modifier = Modifier.align(Alignment.TopStart).padding(6.dp)
+                .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp),
+        )
+        Row(
+            Modifier.align(Alignment.BottomEnd).padding(start = 6.dp, end = 6.dp, bottom = if (isCard) 12.dp else 6.dp)
+                .clip(RoundedCornerShape(8.dp)).background(scheme.surface.copy(alpha = 0.94f))
+                .border(1.dp, scheme.outlineVariant, RoundedCornerShape(8.dp)),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ToolIcon(Icons.Outlined.Remove, "Diminuir imagem") { zoom(1f / 1.2f) }
+            ToolIcon(Icons.Outlined.Add, "Ampliar imagem") { zoom(1.2f) }
+            FrameChip(if (frame.fit) "Preencher" else "Inteira") { c.map.setFrame(node.id, frame.copy(fit = !frame.fit, zoom = 1f, x = 0.5f, y = 0.5f)) }
+            FrameChip("Restaurar") { c.map.resetFrame(node.id) }
+            ToolIcon(Icons.Outlined.Check, "Concluir ajuste") { c.map.stopFraming() }
+        }
+        if (isCard) {
+            // Alça da altura da imagem no cartão (o arraste é tratado pelo quadro).
+            Box(
+                Modifier.align(Alignment.BottomCenter).padding(bottom = 3.dp).size(44.dp, 6.dp)
+                    .background(scheme.primary, RoundedCornerShape(50)).semantics { contentDescription = "Altura da imagem" },
+            )
+        }
+    }
+}
+
+@Composable
+private fun FrameChip(label: String, onClick: () -> Unit) {
+    Text(
+        label,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable(onClick = onClick).padding(horizontal = 6.dp, vertical = 5.dp),
+    )
 }
 
 @Composable
@@ -613,13 +734,14 @@ private fun NodeView(
         else -> scheme.outlineVariant
     }
     val description = "${node.kind.label}: ${node.title.ifBlank { "sem título" }}" + (legendColor?.let { " ($it)" } ?: "")
+    val framing = c.map.framingId == node.id
     Box(modifier.semantics { contentDescription = description }) {
         when (node.kind) {
-            NodeKind.Cartao -> CardNode(c, node, tint, borderColor, selected, editing, entries)
-            NodeKind.Imagem -> ImageNode(c, node, borderColor, selected, editing)
+            NodeKind.Cartao -> CardNode(c, node, tint, borderColor, selected, editing, framing, entries)
+            NodeKind.Imagem -> ImageNode(c, node, borderColor, selected, editing, framing)
             NodeKind.Texto -> TextNode(c, node, tint, selected, editing)
         }
-        if (active && !editing && zoom >= 0.45f) NodeTools(c, node, entries, Modifier.align(Alignment.TopEnd).padding(6.dp))
+        if (active && !editing && !framing && zoom >= 0.45f) NodeTools(c, node, entries, Modifier.align(Alignment.TopEnd).padding(6.dp))
     }
 }
 
@@ -631,6 +753,7 @@ private fun CardNode(
     border: Color,
     selected: Boolean,
     editing: Boolean,
+    framing: Boolean,
     entries: List<UniverseEntry>,
 ) {
     val scheme = MaterialTheme.colorScheme
@@ -642,8 +765,9 @@ private fun CardNode(
         Modifier.fillMaxSize().clip(shape).background(bg).border(if (selected) 2.dp else 1.dp, border, shape),
     ) {
         if (node.image != null) {
-            Box(Modifier.fillMaxWidth().fillMaxHeight(0.45f).background(scheme.surfaceVariant)) {
-                if (image != null) Image(image, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            Box(Modifier.fillMaxWidth().fillMaxHeight(node.imageRatio).background(scheme.surfaceVariant)) {
+                FramedImage(image, node.frame, Modifier.fillMaxSize())
+                if (framing) FramingOverlay(c, node, image, isCard = true)
             }
         }
         Column(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 12.dp, vertical = 10.dp)) {
@@ -716,13 +840,14 @@ private fun EntryChip(c: EscribaController, node: BoardNode, entry: UniverseEntr
 }
 
 @Composable
-private fun ImageNode(c: EscribaController, node: BoardNode, border: Color, selected: Boolean, editing: Boolean) {
+private fun ImageNode(c: EscribaController, node: BoardNode, border: Color, selected: Boolean, editing: Boolean, framing: Boolean) {
     val scheme = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(10.dp)
     val image = rememberBoardImage(c, node.image)
     Box(Modifier.fillMaxSize().clip(shape).background(scheme.surfaceVariant).border(if (selected) 2.dp else 1.dp, border, shape)) {
-        if (image != null) Image(image, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        if (editing || node.title.isNotBlank()) {
+        FramedImage(image, node.frame, Modifier.fillMaxSize())
+        if (framing) FramingOverlay(c, node, image, isCard = false)
+        if (!framing && (editing || node.title.isNotBlank())) {
             val style = TextStyle(fontSize = 12.sp, color = Color.White, textAlign = TextAlign.Center, fontWeight = FontWeight.Medium)
             Box(
                 Modifier.align(Alignment.BottomCenter).fillMaxWidth()
@@ -820,6 +945,11 @@ private fun NodeTools(c: EscribaController, node: BoardNode, entries: List<Unive
                     if (node.image == null) c.map.chooseNodeImage(node.id) else imageMenu = true
                 }
                 DropdownMenu(expanded = imageMenu, onDismissRequest = { imageMenu = false }) {
+                    DropdownMenuItem(text = { Text("Ajustar imagem (mover e ampliar)") }, onClick = { imageMenu = false; c.map.startFraming(node.id) })
+                    if (node.kind == NodeKind.Imagem) {
+                        DropdownMenuItem(text = { Text("Usar a proporção da imagem") }, onClick = { imageMenu = false; c.map.fitNodeToImage(node.id) })
+                    }
+                    HorizontalDivider()
                     DropdownMenuItem(text = { Text("Trocar imagem") }, onClick = { imageMenu = false; c.map.chooseNodeImage(node.id) })
                     if (node.kind == NodeKind.Cartao) {
                         DropdownMenuItem(text = { Text("Remover imagem") }, onClick = { imageMenu = false; c.map.removeNodeImage(node.id) })

@@ -11,6 +11,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.click
+import androidx.compose.ui.test.doubleClick
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -195,6 +196,34 @@ class PlotMapTest {
                 waitForIdle()
                 onNodeWithContentDescription("Vincular ficha").fetchSemanticsNode()
                 out?.let { javax.imageio.ImageIO.write(onRoot().captureToImage().toAwtImage(), "png", java.io.File(it, "mapa-hover.png")) }
+                // Duplo clique na imagem do cartão: ajuste da imagem. Arrastar move, roda amplia, alça muda a altura.
+                val card = bounds("Cartão: Wirtoris")
+                val imgPoint = Offset(card.center.x, card.top + card.height * 0.2f)
+                onRoot().performMouseInput { doubleClick(imgPoint) }
+                waitForIdle()
+                val wid = c.map.board!!.nodes.first { it.title == "Wirtoris" }.id
+                assertEquals(wid, c.map.framingId)
+                onNodeWithContentDescription("Ajustando imagem").fetchSemanticsNode()
+                onRoot().performMouseInput { moveTo(imgPoint); scroll(-3f) }
+                waitForIdle()
+                assertTrue(c.map.board!!.nodes.first { it.id == wid }.frame.zoom > 1.2f, "a roda ampliou a imagem, não o quadro")
+                assertEquals(1f, c.map.board!!.viewport.zoom, 0.01f)
+                val before = c.map.board!!.nodes.first { it.id == wid }.frame
+                drag(imgPoint, imgPoint + Offset(-60f, 0f))
+                assertTrue(c.map.board!!.nodes.first { it.id == wid }.frame.x > before.x, "arrastar para a esquerda mostra mais da direita")
+                val ratioBefore = c.map.board!!.nodes.first { it.id == wid }.imageRatio
+                val handle = bounds("Altura da imagem")
+                drag(Offset(handle.center.x, handle.bottom + 2f), Offset(handle.center.x, handle.bottom + 62f))
+                assertTrue(c.map.board!!.nodes.first { it.id == wid }.imageRatio > ratioBefore + 0.1f, "a alça aumentou a imagem no cartão")
+                out?.let { javax.imageio.ImageIO.write(onRoot().captureToImage().toAwtImage(), "png", java.io.File(it, "mapa-ajuste.png")) }
+                onNodeWithContentDescription("Mapa de enredo").performKeyInput { pressKey(Key.Escape) }
+                waitForIdle()
+                assertEquals(null, c.map.framingId)
+                out?.let { javax.imageio.ImageIO.write(onRoot().captureToImage().toAwtImage(), "png", java.io.File(it, "mapa-ajustado.png")) }
+                // Desfazer volta o enquadramento inteiro de uma vez.
+                runOnIdle { c.map.undo() }
+                assertEquals(com.cuboide.escriba.core.board.ImageFrame(), c.map.board!!.nodes.first { it.id == wid }.frame)
+                runOnIdle { c.map.redo() }
                 // Tema claro e zoom pela roda.
                 runOnIdle { c.updateSettings { s -> s.copy(theme = com.cuboide.escriba.core.storage.ThemeId.Papel) } }
                 onRoot().performMouseInput { moveTo(Offset(700f, 500f)); scroll(3f) }

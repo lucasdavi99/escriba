@@ -15,6 +15,8 @@ import com.cuboide.escriba.core.board.curveOf
 import com.cuboide.escriba.core.board.duplicate
 import com.cuboide.escriba.core.board.hitEdge
 import com.cuboide.escriba.core.board.nodeAt
+import com.cuboide.escriba.core.board.panned
+import com.cuboide.escriba.core.board.zoomed
 import com.cuboide.escriba.core.board.rect
 import com.cuboide.escriba.core.board.removeBoard
 import com.cuboide.escriba.core.board.removeNodes
@@ -222,5 +224,77 @@ class PlotMapControllerTest {
         c.closeBook()
         c.openBook(path)
         assertEquals(1, c.map.boards!!.boards.size, "arquivo corrompido: começa com um quadro vazio")
+    }
+}
+
+class ImageFrameTest {
+    private val eps = 0.01f
+
+    @Test
+    fun fillCoversTheAreaAndFitShowsWholeImage() {
+        // Imagem 400 × 200 numa área 100 × 100.
+        val fill = com.cuboide.escriba.core.board.placeImage(100f, 100f, 400f, 200f, com.cuboide.escriba.core.board.ImageFrame())
+        assertEquals(200f, fill.width, eps)
+        assertEquals(100f, fill.height, eps)
+        assertEquals(-50f, fill.x, eps) // centrada
+        val fit = com.cuboide.escriba.core.board.placeImage(100f, 100f, 400f, 200f, com.cuboide.escriba.core.board.ImageFrame(fit = true))
+        assertEquals(100f, fit.width, eps)
+        assertEquals(25f, fit.y, eps) // sobra em cima e embaixo
+    }
+
+    @Test
+    fun panMovesFocusAndStopsAtTheEdges() {
+        val f0 = com.cuboide.escriba.core.board.ImageFrame()
+        // Arrastar 30 para a direita mostra mais da esquerda: a imagem anda 30.
+        val f1 = f0.panned(30f, 0f, 100f, 100f, 400f, 200f)
+        val r1 = com.cuboide.escriba.core.board.placeImage(100f, 100f, 400f, 200f, f1)
+        assertEquals(-20f, r1.x, eps)
+        // Arrastar demais encosta a borda esquerda da imagem na área, sem sobra.
+        val f2 = f0.panned(500f, 0f, 100f, 100f, 400f, 200f)
+        assertEquals(0f, com.cuboide.escriba.core.board.placeImage(100f, 100f, 400f, 200f, f2).x, eps)
+        // Na vertical a imagem já cabe exatamente: não mexe.
+        assertEquals(0.5f, f0.panned(0f, 40f, 100f, 100f, 400f, 200f).y, eps)
+    }
+
+    @Test
+    fun zoomIsLimitedAndEnlarges() {
+        val f = com.cuboide.escriba.core.board.ImageFrame().zoomed(2f, 100f, 100f, 400f, 200f)
+        assertEquals(400f, com.cuboide.escriba.core.board.placeImage(100f, 100f, 400f, 200f, f).width, eps)
+        assertEquals(com.cuboide.escriba.core.board.ImageFrame.MAX_ZOOM, f.zoomed(100f, 100f, 100f, 400f, 200f).zoom, eps)
+        assertEquals(1f, f.zoomed(0.01f, 100f, 100f, 400f, 200f).zoom, eps)
+    }
+}
+
+class FramingControllerTest {
+    private val fs = InMemoryFileStore()
+    private val clock = TestClock()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val services = EscribaServices(fs, "/lib", "/data", { clock.now }, clock::id, { "2026-11-11" })
+    private val c = EscribaController(services, scope)
+
+    @AfterTest
+    fun tearDown() = scope.cancel()
+
+    @Test
+    fun framingIsOneUndoStepAndNeedsAnImage() {
+        c.createBook("Livro", "")
+        val a = c.map.addCard(Pt(0f, 0f))
+        c.map.startFraming(a)
+        assertNull(c.map.framingId, "cartão sem imagem não entra no ajuste")
+        c.map.edit { bs -> bs.copy(boards = bs.boards.map { b -> b.copy(nodes = b.nodes.map { it.copy(image = "assets/x.png") }) }) }
+
+        c.map.startFraming(a)
+        assertEquals(a, c.map.framingId)
+        c.map.setFrame(a, com.cuboide.escriba.core.board.ImageFrame(x = 0.2f, zoom = 2f))
+        c.map.setFrame(a, com.cuboide.escriba.core.board.ImageFrame(x = 0.3f, zoom = 2.5f))
+        c.map.setImageRatio(a, 0.99f)
+        assertEquals(com.cuboide.escriba.core.board.ImageFrame.MAX_CARD_RATIO, c.map.board!!.nodes.single().imageRatio)
+        c.map.stopFraming()
+
+        c.map.undo()
+        val n = c.map.board!!.nodes.single()
+        assertEquals(com.cuboide.escriba.core.board.ImageFrame(), n.frame)
+        assertEquals(com.cuboide.escriba.core.board.ImageFrame.DEFAULT_CARD_RATIO, n.imageRatio)
+        assertEquals("assets/x.png", n.image)
     }
 }

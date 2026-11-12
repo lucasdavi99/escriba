@@ -30,6 +30,10 @@ data class BoardNode(
     val color: String? = null,
     /** Ficha do Universo vinculada ao cartão. */
     val entryId: String? = null,
+    /** Como a imagem é recortada e posicionada dentro do nó. */
+    val frame: ImageFrame = ImageFrame(),
+    /** Cartão: fração da altura ocupada pela imagem. */
+    val imageRatio: Float = ImageFrame.DEFAULT_CARD_RATIO,
 ) {
     val right: Float get() = x + width
     val bottom: Float get() = y + height
