@@ -47,6 +47,12 @@ import com.cuboide.escriba.core.storage.TrashStore
 import com.cuboide.escriba.core.storage.TrashKind
 import com.cuboide.escriba.core.board.ImageFrame
 import com.cuboide.escriba.core.model.EntryImage
+import com.cuboide.escriba.core.calendar.CalendarTemplate
+import com.cuboide.escriba.core.calendar.CalendarTemplates
+import com.cuboide.escriba.core.calendar.ParsedDate
+import com.cuboide.escriba.core.calendar.WorldCalendar
+import com.cuboide.escriba.core.calendar.WorldDate
+import com.cuboide.escriba.core.calendar.parseDate
 import com.cuboide.escriba.core.universe.EntryMentions
 import com.cuboide.escriba.core.universe.MentionIndex
 import com.cuboide.escriba.core.universe.UNIVERSE_SCHEMA_VERSION
@@ -154,6 +160,9 @@ enum class Section(val label: String, val needsBook: Boolean) {
 
 enum class SaveState { Salvo, Pendente, Salvando }
 
+/** O que o Universo está mostrando: as fichas ou uma ferramenta do mundo. */
+enum class UniverseTool { Fichas, Calendario }
+
 class OpenBook(
     val path: String,
     manifest: BookManifest,
@@ -161,8 +170,11 @@ class OpenBook(
     outline: Outline,
     notes: BookNotes = BookNotes(),
     boards: PlotBoards = PlotBoards(),
+    calendar: WorldCalendar? = null,
 ) {
     var manifest by mutableStateOf(manifest)
+    /** Calendário próprio do livro; `null` = usa o comum (ver [EscribaController.calendar]). */
+    var calendar by mutableStateOf(calendar)
     var universe by mutableStateOf(universe)
     var outline by mutableStateOf(outline)
     var notes by mutableStateOf(notes)
@@ -190,6 +202,7 @@ class EscribaController(private val services: EscribaServices, private val scope
     var enredoView by mutableStateOf(EnredoView.Mapa)
     /** Ficha que o Universo deve abrir ao ser mostrado (vem do chip de um cartão do mapa). */
     var universeFocus by mutableStateOf<String?>(null); private set
+    var universeTool by mutableStateOf(UniverseTool.Fichas)
 
     // Localizar/substituir no capítulo atual
     var findVisible by mutableStateOf(false)
@@ -279,6 +292,7 @@ class EscribaController(private val services: EscribaServices, private val scope
         book = OpenBook(
             path, manifest, services.books.loadUniverse(path), services.books.loadOutline(path), services.books.loadNotes(path),
             services.books.loadBoards(path).ensureBoard(services.newId, "Quadro 1"),
+            services.books.loadCalendar(path),
         )
         map.reset()
         layoutSettings = loadLayoutSettings(services.fs, path)
@@ -1000,6 +1014,43 @@ class EscribaController(private val services: EscribaServices, private val scope
         updateEntry(entry.copy(portrait = portrait.copy(frame = frame)))
     }
 
+    // ---------- Calendário do mundo ----------
+
+    /** Calendário em uso: o do livro ou, sem ele, o comum (datas como "3 de março, 12" continuam valendo). */
+    val calendar: WorldCalendar get() = book?.calendar ?: CalendarTemplates.implicit
+
+    /** Mostra a aba Calendário do Universo. */
+    fun showCalendar() {
+        universeTool = UniverseTool.Calendario
+        goTo(Section.Universo)
+    }
+
+    /** Cria o calendário do livro a partir de um modelo. */
+    fun createCalendar(template: CalendarTemplate) = saveCalendar(CalendarTemplates.build(template))
+
+    /** Grava o calendário e relê as datas das cenas que ainda não tinham sido entendidas. */
+    fun saveCalendar(calendar: WorldCalendar) {
+        val b = book ?: return
+        b.calendar = calendar
+        services.books.saveCalendar(b.path, calendar)
+        updateOutline { o ->
+            o.copy(beats = o.beats.map { beat ->
+                if (beat.date != null || beat.whenText.isBlank()) beat
+                else (calendar.parseDate(beat.whenText) as? ParsedDate.Ok)?.let { beat.copy(date = it.date) } ?: beat
+            })
+        }
+    }
+
+    fun setPresent(date: WorldDate?) {
+        book?.calendar?.let { saveCalendar(it.copy(present = date)) }
+    }
+
+    /** "Quando" digitado numa cena: guarda o texto e a data lida (se deu para ler). */
+    fun withWhen(beat: Beat, text: String): Beat {
+        val parsed = calendar.parseDate(text)
+        return beat.copy(whenText = text.trim(), date = (parsed as? ParsedDate.Ok)?.date)
+    }
+
     // ---------- Enredo ----------
 
     /** Abre a ficha no Universo (pelo chip de um cartão do mapa). */
@@ -1009,6 +1060,7 @@ class EscribaController(private val services: EscribaServices, private val scope
             return
         }
         universeFocus = id
+        universeTool = UniverseTool.Fichas
         goTo(Section.Universo)
     }
 

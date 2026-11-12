@@ -53,6 +53,10 @@ import com.cuboide.escriba.core.model.Beat
 import com.cuboide.escriba.core.model.BeatStatus
 import com.cuboide.escriba.core.model.ChapterMeta
 import com.cuboide.escriba.core.model.EntryKind
+import com.cuboide.escriba.core.calendar.ParsedDate
+import com.cuboide.escriba.core.calendar.format
+import com.cuboide.escriba.core.calendar.parseDate
+import com.cuboide.escriba.core.calendar.yearLabel
 import com.cuboide.escriba.core.model.UniverseEntry
 import com.cuboide.escriba.core.outline.BeatFilter
 import com.cuboide.escriba.core.outline.StructureTemplate
@@ -72,7 +76,7 @@ private fun EnredoHeader(c: EscribaController) {
                     selected = c.enredoView == v,
                     onClick = { c.map.flush(); c.enredoView = v },
                     shape = SegmentedButtonDefaults.itemShape(i, EnredoView.entries.size),
-                    label = { Text(v.label) },
+                    label = { Text(v.label, maxLines = 1, softWrap = false) },
                 )
             }
         }
@@ -85,6 +89,10 @@ fun OutlineBoard(c: EscribaController, modifier: Modifier) {
     val book = c.book ?: return
     if (c.enredoView == EnredoView.Mapa) {
         PlotMap(c, header = { EnredoHeader(c) }, modifier = modifier)
+        return
+    }
+    if (c.enredoView == EnredoView.Linha) {
+        TimelineView(c, header = { EnredoHeader(c) }, modifier = modifier)
         return
     }
     var filter by remember { mutableStateOf(BeatFilter()) }
@@ -146,6 +154,7 @@ fun OutlineBoard(c: EscribaController, modifier: Modifier) {
 
     editing?.let { beat ->
         BeatDialog(
+            c = c,
             beat = beat,
             chapters = book.manifest.chapters,
             characters = characters,
@@ -305,6 +314,12 @@ private fun BeatCard(
             }
             Column(Modifier.padding(end = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(beat.title.ifBlank { "(sem título)" }, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (beat.whenText.isNotBlank()) {
+                    Text(
+                        "🗓 " + (beat.date?.let { c.calendar.format(it) } ?: beat.whenText),
+                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary,
+                    )
+                }
                 if (beat.summary.isNotBlank()) {
                     Text(
                         beat.summary, style = MaterialTheme.typography.bodySmall, maxLines = 4,
@@ -350,7 +365,8 @@ private fun statusColor(status: BeatStatus) = when (status) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun BeatDialog(
+internal fun BeatDialog(
+    c: EscribaController,
     beat: Beat,
     chapters: List<ChapterMeta>,
     characters: List<UniverseEntry>,
@@ -364,7 +380,9 @@ private fun BeatDialog(
     var status by remember { mutableStateOf(beat.status) }
     var chapterId by remember { mutableStateOf(beat.chapterId) }
     var characterIds by remember { mutableStateOf(beat.characterIds) }
+    var whenText by remember { mutableStateOf(beat.whenText) }
     var chapterMenu by remember { mutableStateOf(false) }
+    val calendar = c.calendar
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (onTrash == null) "Nova cena" else "Cena") },
@@ -373,6 +391,17 @@ private fun BeatDialog(
                 OutlinedTextField(title, { title = it }, label = { Text("Título") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(act, { act = it }, label = { Text("Etapa (ex.: Ato I)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(summary, { summary = it }, label = { Text("Resumo") }, minLines = 4, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(
+                    whenText, { whenText = it }, label = { Text("Quando") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("ex.: 12 de ${calendar.months.firstOrNull()?.name?.lowercase() ?: "março"}, ${calendar.yearLabel(calendar.present?.year ?: 1)}") },
+                    supportingText = {
+                        when (val p = calendar.parseDate(whenText)) {
+                            is ParsedDate.Ok -> Text("→ ${calendar.format(p.date)}")
+                            is ParsedDate.Problem -> Text(p.message, color = MaterialTheme.colorScheme.error)
+                            ParsedDate.Empty -> Text(if (c.book?.calendar == null) "Usa o calendário comum até o livro ter um próprio (Universo › Calendário)." else "Sem data: a cena fica fora da Linha do tempo.")
+                        }
+                    },
+                )
                 Text("Status", style = MaterialTheme.typography.labelLarge)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     BeatStatus.entries.forEach { s ->
@@ -423,7 +452,7 @@ private fun BeatDialog(
                 enabled = title.isNotBlank(),
                 onClick = {
                     // Ids de fichas que estão na lixeira são mantidos: voltam a aparecer se a ficha for restaurada.
-                    onSave(beat.copy(title = title, act = act.trim(), summary = summary.trim(), status = status, chapterId = chapterId, characterIds = characterIds))
+                    onSave(c.withWhen(beat.copy(title = title, act = act.trim(), summary = summary.trim(), status = status, chapterId = chapterId, characterIds = characterIds), whenText))
                 },
             ) { Text("Salvar") }
         },

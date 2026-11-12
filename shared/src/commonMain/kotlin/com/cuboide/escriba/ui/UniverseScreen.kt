@@ -89,6 +89,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.cuboide.escriba.app.EscribaController
+import com.cuboide.escriba.app.UniverseTool
 import com.cuboide.escriba.core.board.ImageFrame
 import com.cuboide.escriba.core.board.panned
 import com.cuboide.escriba.core.board.zoomed
@@ -148,23 +149,34 @@ fun UniverseScreen(c: EscribaController) {
                 Spacer(Modifier.width(6.dp))
                 Text("Lixeira (${trash.size})")
             }
-            Button(onClick = { filter = ""; selectedId = c.createEntry(kind).id }) { Text("Nova ficha de ${kind.label.lowercase()}") }
+            if (c.universeTool == UniverseTool.Fichas) {
+                Button(onClick = { filter = ""; selectedId = c.createEntry(kind).id }) { Text("Nova ficha de ${kind.label.lowercase()}") }
+            }
         },
     ) {
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             EntryKind.entries.forEach { k ->
                 FilterChip(
-                    selected = kind == k,
-                    onClick = { kind = k },
+                    selected = c.universeTool == UniverseTool.Fichas && kind == k,
+                    onClick = { kind = k; c.universeTool = UniverseTool.Fichas },
                     leadingIcon = { Icon(k.icon, null, Modifier.size(18.dp)) },
                     label = { Text("${k.plural}  ${all.count { it.kind == k }}") },
                 )
             }
             // Ferramentas do mundo que chegam nas próximas etapas.
-            FilterChip(false, onClick = {}, enabled = false, leadingIcon = { Icon(Icons.Outlined.CalendarMonth, null, Modifier.size(18.dp)) }, label = { Text("Calendário · em breve") })
+            FilterChip(
+                selected = c.universeTool == UniverseTool.Calendario,
+                onClick = { c.universeTool = UniverseTool.Calendario },
+                leadingIcon = { Icon(Icons.Outlined.CalendarMonth, null, Modifier.size(18.dp)) },
+                label = { Text("Calendário") },
+            )
             FilterChip(false, onClick = {}, enabled = false, leadingIcon = { Icon(Icons.Outlined.Translate, null, Modifier.size(18.dp)) }, label = { Text("Idiomas · em breve") })
         }
         Spacer(Modifier.height(16.dp))
+        if (c.universeTool == UniverseTool.Calendario) {
+            CalendarScreen(c)
+            return@SectionPage
+        }
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
             Column(Modifier.width(300.dp).fillMaxHeight()) {
                 OutlinedTextField(

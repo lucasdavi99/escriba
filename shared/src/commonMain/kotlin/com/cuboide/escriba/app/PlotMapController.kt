@@ -39,7 +39,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** O que o Enredo mostra: o mapa livre ou a grade de cenas do roteiro. */
-enum class EnredoView(val label: String) { Mapa("Mapa"), Roteiro("Roteiro") }
+enum class EnredoView(val label: String) { Mapa("Mapa"), Roteiro("Roteiro"), Linha("Linha do tempo") }
 
 /**
  * Estado e ações do mapa de enredo (`enredo.json`) do livro aberto: seleção, desfazer/refazer e gravação com atraso

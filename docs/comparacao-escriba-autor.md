@@ -420,5 +420,22 @@ Observações:
 
 Calendário e Idiomas aparecem como abas desativadas até as fases 2 e 5.
 
+**Situação (11/11/2026, mais tarde):** Fase 2a entregue: **U10** e **U13** (só a parte das cenas).
+- Calendário do livro em `calendar.json`, com:
+  - meses de tamanhos diferentes e meses fora da semana;
+  - ano bissexto configurável;
+  - semana com nomes, eras, estações e festas;
+  - o presente da história.
+- O cálculo das datas está em `core/calendar/CalendarMath.kt` e a leitura de datas digitadas, em `DateParser.kt`.
+- Três modelos: um exemplo inventado (Aldamar), "Como o nosso" e "Em branco".
+- A aba Calendário do Universo tem a grade do mês, o painel do dia e o editor da estrutura.
+- As cenas do Roteiro ganham "Quando". A data é guardada pela id do mês, então renomear um mês não quebra nada.
+- O Enredo ganha a vista "Linha do tempo", com:
+  - a ordem por data e os intervalos entre as cenas;
+  - o marcador do presente;
+  - a idade de cada personagem a partir de "Nasceu" e "Morreu";
+  - listas de cenas sem data e de datas com problema.
+- Falta: dar data também aos cartões do Mapa. As luas, o sol e os eclipses ficam para a Fase 2b.
+
 Ordem sugerida: **U1, U3, U4, U5, U2** (a ficha fica no nível do Autor); depois **U10 e U13** (calendário útil para a
 história); depois **U8 e U6**; e, por último, **U11, U12, U9 e U14–U16** (os mais caros e menos essenciais).

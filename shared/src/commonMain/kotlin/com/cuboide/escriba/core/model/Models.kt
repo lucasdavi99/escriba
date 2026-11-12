@@ -147,6 +147,10 @@ data class Beat(
     /** Ids das fichas de personagem do Universo que aparecem na cena. */
     val characterIds: List<String> = emptyList(),
     val modifiedAt: Long = 0,
+    /** Quando a cena acontece, como o autor escreveu ("12 de Bruma, 347 E.C."). */
+    val whenText: String = "",
+    /** A mesma data lida no calendário do livro; `null` se não foi informada ou não pôde ser lida. */
+    val date: com.cuboide.escriba.core.calendar.WorldDate? = null,
 )
 
 /** Roteiro do livro: a ordem da lista é a ordem das cenas. */
