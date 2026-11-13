@@ -15,6 +15,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import androidx.compose.ui.unit.dp
 import com.cuboide.escriba.app.EnredoView
@@ -76,6 +77,23 @@ class CalendarScreenTest {
                 waitForIdle()
                 onAllNodesWithText("É o presente da história.").fetchSemanticsNodes().let { assertEquals(1, it.size) }
                 shot("calendario-mes.png", onRoot().captureToImage().toAwtImage())
+
+                // Céu do dia (sol, as duas luas) e o gráfico do ano, embaixo da grade do mês.
+                onNodeWithContentDescription("Lua Lume Pálido").fetchSemanticsNode()
+                onNodeWithContentDescription("Lua Brasa").fetchSemanticsNode()
+                onNodeWithText("☀ Nasce", substring = true).fetchSemanticsNode()
+                onNodeWithContentDescription("Gráfico do ano").performScrollTo()
+                waitForIdle()
+                shot("calendario-ceu.png", onRoot().captureToImage().toAwtImage())
+
+                // Calendário sem céu (como os criados antes das luas): aviso e botão que devolve as luas do modelo.
+                val withSky = c.book!!.calendar!!
+                runOnIdle { c.saveCalendar(withSky.copy(moons = emptyList(), sun = null)) }
+                waitForIdle()
+                onNodeWithText("Acrescentar luas e sol").performClick()
+                waitForIdle()
+                assertEquals(withSky.moons, c.book!!.calendar!!.moons)
+                assertEquals(0, onAllNodesWithText("Acrescentar luas e sol").fetchSemanticsNodes().size)
 
                 // Editor da estrutura.
                 onNodeWithText("Editar a estrutura").performClick()

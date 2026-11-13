@@ -25,6 +25,30 @@ data class Season(val id: String, val name: String, val color: String, val month
 @Serializable
 data class Festival(val id: String, val name: String, val monthId: String, val day: Int, val description: String = "")
 
+/**
+ * Lua do mundo. [cycleDays] é o tempo de uma lua nova até a seguinte; [epochDay] é o índice absoluto (pode ter
+ * fração) de uma lua nova qualquer, que ancora as fases. [color] em `#RRGGBB`.
+ */
+@Serializable
+data class Moon(val id: String, val name: String, val color: String = "#E8E2D0", val cycleDays: Double = 29.53, val epochDay: Double = 0.0)
+
+/**
+ * Sol e eclipses. O dia mais longo do ano é o dia [longestDay] do mês [longestMonthId]; a duração da luz varia
+ * entre [longestHours] e [shortestHours] numa curva suave. Eclipses só acontecem perto do centro das temporadas,
+ * que se repetem a cada [eclipseSeasonDays] dias a partir de [eclipseEpochDay], numa janela de [eclipseWindowDays].
+ */
+@Serializable
+data class SunSpec(
+    val longestMonthId: String,
+    val longestDay: Int = 1,
+    val longestHours: Double = 15.0,
+    val shortestHours: Double = 9.0,
+    val dayHours: Double = 24.0,
+    val eclipseSeasonDays: Double = 0.0,
+    val eclipseWindowDays: Double = 0.0,
+    val eclipseEpochDay: Double = 0.0,
+)
+
 /** Quanto da data foi informado: só o ano, mês e ano, ou o dia. */
 @Serializable
 enum class DatePrecision { Year, Month, Day }
@@ -48,6 +72,9 @@ data class WorldCalendar(
     val eras: List<Era> = emptyList(),
     val seasons: List<Season> = emptyList(),
     val festivals: List<Festival> = emptyList(),
+    val moons: List<Moon> = emptyList(),
+    /** Sol e eclipses; `null` = o calendário não acompanha a luz do dia. */
+    val sun: SunSpec? = null,
     /** O "presente da história": de onde a Linha do tempo parte e a idade das fichas é contada. */
     val present: WorldDate? = null,
 ) {

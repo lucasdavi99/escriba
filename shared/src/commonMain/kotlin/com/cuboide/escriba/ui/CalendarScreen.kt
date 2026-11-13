@@ -68,6 +68,16 @@ import com.cuboide.escriba.app.EscribaController
 import com.cuboide.escriba.app.EnredoView
 import com.cuboide.escriba.app.Section
 import com.cuboide.escriba.core.calendar.CalMonth
+import com.cuboide.escriba.core.calendar.Moon
+import com.cuboide.escriba.core.calendar.SunSpec
+import com.cuboide.escriba.core.calendar.allFullTogether
+import com.cuboide.escriba.core.calendar.dateAt
+import com.cuboide.escriba.core.calendar.dayIndex
+import com.cuboide.escriba.core.calendar.daysBeforeYear
+import com.cuboide.escriba.core.calendar.eclipsesInYear
+import com.cuboide.escriba.core.calendar.eclipsesOn
+import com.cuboide.escriba.core.calendar.formatDuration
+import com.cuboide.escriba.core.calendar.stateOn
 import com.cuboide.escriba.core.calendar.CalendarTemplate
 import com.cuboide.escriba.core.calendar.Era
 import com.cuboide.escriba.core.calendar.Festival
@@ -105,6 +115,12 @@ fun CalendarScreen(c: EscribaController) {
     var editing by remember { mutableStateOf(false) }
     if (monthIdx >= cal.months.size) monthIdx = 0
     val month = cal.months.getOrNull(monthIdx)
+    val eclipseCount = remember(cal, year) { cal.eclipsesInYear(year).size }
+    // Próxima vez que todas as luas ficam cheias juntas, contando do presente (ou do começo do ano mostrado).
+    val together = remember(cal) {
+        val from = cal.present?.let { cal.dayIndex(it) } ?: cal.daysBeforeYear(year)
+        cal.allFullTogether(from)
+    }
 
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -123,6 +139,19 @@ fun CalendarScreen(c: EscribaController) {
             }) { Text("Ir ao presente") }
             Button(onClick = { editing = true }) { Text("Editar a estrutura") }
         }
+        if (cal.moons.isEmpty() && cal.sun == null && cal.months.isNotEmpty()) {
+            // Calendários criados antes das luas e do sol (ou feitos sem eles) não ganham céu sozinhos.
+            Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Este calendário ainda não tem luas nem sol: sem eles, não há fases da lua, luz do dia nem eclipses.",
+                        style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = { c.addSuggestedSky() }) { Text("Acrescentar luas e sol") }
+                    TextButton(onClick = { editing = true }) { Text("Configurar") }
+                }
+            }
+        }
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             cal.months.forEachIndexed { i, m ->
                 FilterChip(selected = i == monthIdx, onClick = { monthIdx = i; selectedDay = null }, label = { Text(m.name) })
@@ -132,8 +161,14 @@ fun CalendarScreen(c: EscribaController) {
             EmptyState(Icons.Outlined.CalendarMonth, "Calendário sem meses", "Abra “Editar a estrutura” e acrescente os meses do seu mundo.")
         } else {
             Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState())) {
+                Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(20.dp)) {
                     MonthGrid(c, cal, year, monthIdx, selectedDay) { selectedDay = it }
+                    if (cal.sun != null || cal.moons.isNotEmpty()) {
+                        val selectedIdx = selectedDay?.let { cal.dayIndex(WorldDate(year, month.id, it)) }
+                        YearLightChart(cal, year, selectedIdx) { idx ->
+                            cal.dateAt(idx)?.let { d -> year = d.year; monthIdx = cal.monthIndex(d.monthId).coerceAtLeast(0); selectedDay = d.day }
+                        }
+                    }
                 }
                 Box(Modifier.width(320.dp).fillMaxHeight()) {
                     val day = selectedDay
@@ -148,6 +183,10 @@ fun CalendarScreen(c: EscribaController) {
                 if (cal.leap != null) append(" (+1 no bissexto)")
                 if (cal.weekdays.isNotEmpty()) append(" · semana de ${cal.weekdays.size}")
                 append(" · ${cal.eras.size} era(s) · ${cal.seasons.size} estação(ões) · ${cal.festivals.size} festa(s)")
+                if (cal.moons.isNotEmpty()) append(" · ${cal.moons.size} lua(s)")
+                cal.sun?.let { append(" · ${formatDuration(it.longestHours)} de luz no dia mais longo") }
+                if (cal.sun != null && cal.moons.isNotEmpty()) append(" · $eclipseCount eclipse(s) em ${cal.yearLabel(year)}")
+                together?.let { append(" · todas as luas cheias juntas: ${cal.dateAt(it)?.let { d -> cal.format(d) }}") }
             },
             style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -232,6 +271,7 @@ private fun MonthGrid(c: EscribaController, cal: WorldCalendar, year: Int, month
 @Composable
 private fun DayCell(cal: WorldCalendar, date: WorldDate, selected: Boolean, scenes: Int, onClick: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
+    val index = cal.dayIndex(date)
     val isPresent = cal.present?.let { it.year == date.year && it.monthId == date.monthId && it.day == date.day } == true
     val festival = cal.festivalsOn(date).isNotEmpty()
     val seasonStart = cal.seasons.firstOrNull { it.monthId == date.monthId && it.day == date.day }
@@ -243,7 +283,15 @@ private fun DayCell(cal: WorldCalendar, date: WorldDate, selected: Boolean, scen
         border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) scheme.primary else scheme.outlineVariant),
     ) {
         Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("${date.day}", style = MaterialTheme.typography.bodyMedium, fontWeight = if (isPresent) FontWeight.Bold else FontWeight.Normal)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("${date.day}", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, fontWeight = if (isPresent) FontWeight.Bold else FontWeight.Normal)
+                if (index != null) {
+                    if (cal.eclipsesOn(index).isNotEmpty()) Box(Modifier.padding(end = 3.dp).size(7.dp).clip(CircleShape).background(scheme.error))
+                    cal.moons.forEach { m ->
+                        MoonGlyph(m.stateOn(index).fraction, hexColor(m.color) ?: Color(0xFFE8E2D0), 12, Modifier.padding(start = 2.dp))
+                    }
+                }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (seasonStart != null) Box(Modifier.size(8.dp).clip(CircleShape).background(hexColor(seasonStart.color) ?: scheme.tertiary))
                 if (festival) Text("◆", style = MaterialTheme.typography.labelSmall, color = LocalPalette.current.accent)
@@ -267,6 +315,7 @@ private fun DayPanel(c: EscribaController, cal: WorldCalendar, date: WorldDate) 
             val weekday = cal.weekdayOf(date)?.let { cal.weekdays[it] }
             Text(listOfNotNull(weekday ?: "fora da semana", cal.seasonOf(date)?.name).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
             cal.seasons.filter { it.monthId == date.monthId && it.day == date.day }.forEach { Text("Começa: ${it.name}", style = MaterialTheme.typography.bodySmall) }
+            cal.dayIndex(date)?.let { idx -> if (cal.sun != null || cal.moons.isNotEmpty()) DaySky(cal, idx) }
             cal.festivalsOn(date).forEach { f ->
                 Text("◆ ${f.name}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                 if (f.description.isNotBlank()) Text(f.description, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
@@ -409,6 +458,57 @@ private fun CalendarEditorDialog(initial: WorldCalendar, onDismiss: () -> Unit, 
                             }
                         }
                     }
+                    EditorSection("Luas (${cal.moons.size})", onAdd = {
+                        val color = MOON_COLORS[cal.moons.size % MOON_COLORS.size]
+                        cal = cal.copy(moons = cal.moons + Moon(newId("l"), "Nova lua", color, 30.0, cal.present?.let { cal.dayIndex(it)?.toDouble() } ?: 0.0))
+                    }) {
+                        cal.moons.forEach { m ->
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Box(
+                                    Modifier.size(22.dp).clip(CircleShape).background(hexColor(m.color) ?: Color.Gray)
+                                        .clickable {
+                                            val next = MOON_COLORS[(MOON_COLORS.indexOf(m.color) + 1).mod(MOON_COLORS.size)]
+                                            cal = cal.copy(moons = cal.moons.map { if (it.id == m.id) it.copy(color = next) else it })
+                                        }
+                                        .semantics { contentDescription = "Trocar cor da lua" },
+                                )
+                                SmallField(m.name, "Nome", Modifier.weight(1f)) { v -> cal = cal.copy(moons = cal.moons.map { if (it.id == m.id) it.copy(name = v) else it }) }
+                                DecimalField(m.cycleDays, "Ciclo (dias)", 1.5..10_000.0) { v -> cal = cal.copy(moons = cal.moons.map { if (it.id == m.id) it.copy(cycleDays = v) else it }) }
+                                DateAnchorField(cal, m.epochDay, "Uma lua nova em", Modifier.width(230.dp)) { v -> cal = cal.copy(moons = cal.moons.map { if (it.id == m.id) it.copy(epochDay = v) else it }) }
+                                IconAction(Icons.Outlined.Close, "Apagar lua ${m.name}", onClick = { cal = cal.copy(moons = cal.moons.filterNot { it.id == m.id }) })
+                            }
+                        }
+                        if (cal.moons.isNotEmpty()) Hint2("O ciclo é o tempo de uma lua nova até a seguinte. A data de uma lua nova qualquer ancora as fases.")
+                    }
+                    EditorSection("Sol e eclipses", onAdd = null) {
+                        val sun = cal.sun
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Checkbox(sun != null, { on ->
+                                val firstMonth = cal.months.getOrNull(cal.months.size / 3)?.id ?: cal.months.firstOrNull()?.id.orEmpty()
+                                cal = cal.copy(sun = if (on) SunSpec(firstMonth, 1) else null)
+                            })
+                            Text("Acompanhar a luz do dia", style = MaterialTheme.typography.bodySmall)
+                        }
+                        if (sun != null) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("Dia mais longo:", style = MaterialTheme.typography.bodySmall)
+                                NumberField(sun.longestDay, "Dia", 1..999) { v -> cal = cal.copy(sun = sun.copy(longestDay = v)) }
+                                MonthPicker(cal.months, sun.longestMonthId) { id -> cal = cal.copy(sun = sun.copy(longestMonthId = id)) }
+                                DecimalField(sun.longestHours, "Luz no mais longo (h)", 0.0..sun.dayHours) { v -> cal = cal.copy(sun = sun.copy(longestHours = v)) }
+                                DecimalField(sun.shortestHours, "Luz no mais curto (h)", 0.0..sun.dayHours) { v -> cal = cal.copy(sun = sun.copy(shortestHours = v)) }
+                                DecimalField(sun.dayHours, "Horas do dia", 1.0..1000.0) { v -> cal = cal.copy(sun = sun.copy(dayHours = v)) }
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                DecimalField(sun.eclipseSeasonDays, "Temporada de eclipses (dias)", 0.0..100_000.0) { v -> cal = cal.copy(sun = sun.copy(eclipseSeasonDays = v)) }
+                                DecimalField(sun.eclipseWindowDays, "Janela (dias)", 0.0..100_000.0) { v -> cal = cal.copy(sun = sun.copy(eclipseWindowDays = v)) }
+                                DateAnchorField(cal, sun.eclipseEpochDay, "Centro de uma temporada", Modifier.width(230.dp)) { v -> cal = cal.copy(sun = sun.copy(eclipseEpochDay = v)) }
+                            }
+                            Hint2(
+                                "Lua nova perto do centro de uma temporada escurece o sol; lua cheia perto do centro fica avermelhada. " +
+                                    "Temporada 0 desliga os eclipses.",
+                            )
+                        }
+                    }
                     EditorSection("O presente da história", onAdd = null) {
                         SmallField(presentText, "ex.: 12 de ${cal.months.firstOrNull()?.name ?: "mês"}, ${cal.yearLabel(1)}", Modifier.fillMaxWidth()) { presentText = it }
                         when (presentParsed) {
@@ -473,4 +573,45 @@ private fun MonthPicker(months: List<CalMonth>, selectedId: String, onPick: (Str
             months.forEach { m -> DropdownMenuItem(text = { Text(m.name) }, onClick = { open = false; onPick(m.id) }) }
         }
     }
+}
+
+private val MOON_COLORS = listOf("#E8E2D0", "#D9825B", "#9DB7D5", "#B9A5D6", "#9CC59A")
+
+private val DECIMAL_INPUT = Regex("\\d{0,6}([.,]\\d{0,6})?")
+
+/** Campo decimal (aceita vírgula) que tolera digitação parcial. */
+@Composable
+private fun DecimalField(value: Double, label: String, range: ClosedFloatingPointRange<Double>, onChange: (Double) -> Unit) {
+    var text by remember(value) { mutableStateOf(formatDecimal(value)) }
+    OutlinedTextField(
+        text,
+        { t ->
+            if (t.isEmpty() || t.matches(DECIMAL_INPUT)) {
+                text = t
+                t.replace(',', '.').toDoubleOrNull()?.takeIf { it in range }?.let(onChange)
+            }
+        },
+        label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) }, singleLine = true,
+        modifier = Modifier.width(150.dp), textStyle = MaterialTheme.typography.bodyMedium,
+    )
+}
+
+private fun formatDecimal(v: Double): String =
+    if (v == kotlin.math.floor(v)) v.toLong().toString() else v.toString().replace('.', ',')
+
+/** Escolhe um dia pelo texto ("12 de março, 2000"); guarda o índice do meio-dia desse dia. */
+@Composable
+private fun DateAnchorField(cal: WorldCalendar, value: Double, label: String, modifier: Modifier, onChange: (Double) -> Unit) {
+    val initial = remember(cal.months) { cal.dateAt(kotlin.math.floor(value).toLong())?.let { cal.format(it) }.orEmpty() }
+    var text by remember { mutableStateOf(initial) }
+    val parsed = cal.parseDate(text)
+    OutlinedTextField(
+        text,
+        { t ->
+            text = t
+            (cal.parseDate(t) as? ParsedDate.Ok)?.let { ok -> cal.dayIndex(ok.date)?.let { onChange(it + 0.5) } }
+        },
+        label = { Text(label, maxLines = 1) }, singleLine = true, modifier = modifier, textStyle = MaterialTheme.typography.bodyMedium,
+        isError = parsed is ParsedDate.Problem,
+    )
 }

@@ -1045,6 +1045,11 @@ class EscribaController(private val services: EscribaServices, private val scope
         book?.calendar?.let { saveCalendar(it.copy(present = date)) }
     }
 
+    /** Dá luas e sol a um calendário que não tem (ver [CalendarTemplates.suggestedSky]). */
+    fun addSuggestedSky() {
+        book?.calendar?.let { saveCalendar(CalendarTemplates.suggestedSky(it)) }
+    }
+
     /** "Quando" digitado numa cena: guarda o texto e a data lida (se deu para ler). */
     fun withWhen(beat: Beat, text: String): Beat {
         val parsed = calendar.parseDate(text)

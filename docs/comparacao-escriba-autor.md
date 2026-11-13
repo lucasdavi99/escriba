@@ -437,5 +437,18 @@ Calendário e Idiomas aparecem como abas desativadas até as fases 2 e 5.
   - listas de cenas sem data e de datas com problema.
 - Falta: dar data também aos cartões do Mapa. As luas, o sol e os eclipses ficam para a Fase 2b.
 
+**Situação (12/11/2026):** Fase 2b entregue: **U11** (sem as constelações) e o gráfico do ano de **U12**.
+- O cálculo está em `core/calendar/Astronomy.kt`:
+  - Luas com ciclo e uma lua nova de referência: fase, % iluminada, próxima cheia e próxima nova, e o dia em que todas ficam cheias juntas.
+  - Sol: luz do dia numa curva entre o dia mais longo e o mais curto, com nascer, pôr e a diferença para ontem.
+  - Eclipses: do sol na lua nova e da lua na cheia, só dentro das temporadas de eclipse.
+- "Como o nosso" usa valores reais. Nos testes, acerta, com folga de 1 dia, as luas de 2026 e os eclipses de 2025 e 2026.
+- A tela mostra:
+  - as fases na grade do mês e o eclipse marcado no dia;
+  - o céu no painel do dia;
+  - o gráfico "Estações e luz" do ano, que é clicável;
+  - luas, sol e eclipses no editor da estrutura.
+- Ficam de fora, como decidido: o astrolábio, o céu animado e as constelações.
+
 Ordem sugerida: **U1, U3, U4, U5, U2** (a ficha fica no nível do Autor); depois **U10 e U13** (calendário útil para a
 história); depois **U8 e U6**; e, por último, **U11, U12, U9 e U14–U16** (os mais caros e menos essenciais).

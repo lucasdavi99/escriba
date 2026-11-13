@@ -2,8 +2,8 @@ package com.cuboide.escriba.core.calendar
 
 /** Pontos de partida para o calendário do livro. Nomes e festas do exemplo foram inventados para o Escriba. */
 enum class CalendarTemplate(val title: String, val description: String) {
-    Exemplo("Aldamar (exemplo)", "9 meses de 40 dias e 5 dias fora do ano, semana de 5 dias, duas eras e festas."),
-    ComoONosso("Como o nosso", "12 meses, semana de 7 dias e ano bissexto."),
+    Exemplo("Aldamar (exemplo)", "9 meses de 40 dias e 5 dias fora do ano, semana de 5 dias, duas luas, duas eras e festas."),
+    ComoONosso("Como o nosso", "12 meses, semana de 7 dias, ano bissexto e uma lua."),
     EmBranco("Em branco", "12 meses de 30 dias para você dar nome."),
 }
 
@@ -16,6 +16,22 @@ object CalendarTemplates {
 
     /** Calendário usado quando o livro não tem um: datas como "3 de março, 12" continuam valendo. */
     val implicit: WorldCalendar by lazy { gregorian() }
+
+    /**
+     * Luas e sol para um calendário que ainda não tem céu (por exemplo, criado antes de o Escriba acompanhar luas e
+     * sol). Se os meses são os de um modelo (mesmas ids), usa o céu daquele modelo; senão, uma lua de 30 dias e um
+     * sol com o dia mais longo a um terço do ano, sem eclipses, para o autor ajustar.
+     */
+    fun suggestedSky(cal: WorldCalendar): WorldCalendar {
+        val ids = cal.months.map { it.id }.toSet()
+        val template = CalendarTemplate.entries.map { build(it) }.firstOrNull { t -> t.months.map { it.id }.toSet() == ids && (t.moons.isNotEmpty() || t.sun != null) }
+        if (template != null) return cal.copy(moons = cal.moons.ifEmpty { template.moons }, sun = cal.sun ?: template.sun)
+        val third = cal.months.getOrNull(cal.months.size / 3) ?: cal.months.firstOrNull() ?: return cal
+        return cal.copy(
+            moons = cal.moons.ifEmpty { listOf(Moon("lua", "Lua", "#E8E2D0", 30.0, 0.0)) },
+            sun = cal.sun ?: SunSpec(third.id, (third.days / 2).coerceAtLeast(1)),
+        )
+    }
 
     private fun gregorian(): WorldCalendar {
         val names = listOf("janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro")
@@ -39,7 +55,16 @@ object CalendarTemplates {
         )
         // No calendário gregoriano, 1º de janeiro do ano 1 foi uma segunda-feira.
         val firstOfYearOne = base.weekdayOf(WorldDate(1, "m1", 1)) ?: 0
-        return base.copy(weekdayOffset = (1 - firstOfYearOne).mod(7))
+        // Lua: ciclo sinódico médio, ancorado na lua nova de 6/1/2000 (18h14 UTC). Sol: luz do dia no Sudeste do
+        // Brasil (mais longo em 21 de dezembro). Eclipses: temporadas a cada meio "ano de eclipses", centradas no
+        // eclipse do sol de 8/4/2024.
+        val newMoon2000 = base.dayIndex(WorldDate(2000, "m1", 6))!! + 0.76
+        val eclipse2024 = base.dayIndex(WorldDate(2024, "m4", 8))!! + 0.76
+        return base.copy(
+            weekdayOffset = (1 - firstOfYearOne).mod(7),
+            moons = listOf(Moon("lua", "Lua", "#E8E2D0", 29.530588853, newMoon2000)),
+            sun = SunSpec("m12", 21, longestHours = 13.5, shortestHours = 10.6, eclipseSeasonDays = 173.31, eclipseWindowDays = 30.0, eclipseEpochDay = eclipse2024),
+        )
     }
 
     private fun blank(): WorldCalendar = WorldCalendar(
@@ -69,6 +94,11 @@ object CalendarTemplates {
                 Festival("lareira", "Vigília da Lareira", "a9", 40, "A noite mais longa: as histórias antigas são contadas de novo."),
                 Festival("lua-velha", "Dias da Lua Velha", "a0", 1, "Cinco dias que não pertencem a nenhum mês. Não se assina contrato."),
             ),
+            moons = listOf(
+                Moon("palido", "Lume Pálido", "#E8E2D0", 30.0, 3.0),
+                Moon("brasa", "Brasa", "#D9825B", 45.0, 11.0),
+            ),
+            sun = SunSpec("a4", 20, longestHours = 15.5, shortestHours = 8.5, eclipseSeasonDays = 182.5, eclipseWindowDays = 24.0, eclipseEpochDay = 40.0),
             present = WorldDate(1111, "a3", 7),
         )
     }
