@@ -1,5 +1,6 @@
 package com.cuboide.escriba.ui
 
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.rememberScrollbarAdapter
@@ -166,13 +167,14 @@ fun LayoutScreen(c: EscribaController) {
     }
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        Row(Modifier.fillMaxWidth().padding(start = 28.dp, end = 20.dp, top = 20.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(start = Space.page, end = Space.xl, top = 36.dp, bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Diagramação", style = MaterialTheme.typography.headlineMedium)
-                    Spacer(Modifier.width(16.dp))
+                    Text("Diagramação", style = MaterialTheme.typography.displaySmall)
+                    Spacer(Modifier.width(28.dp))
                     TabSwitch(tab) { tab = it }
                 }
+                Spacer(Modifier.height(4.dp))
                 val summary = when {
                     laid == null -> "Diagramando “${book.manifest.title}”…"
                     tab == LayoutTab.Capa -> cover?.let { cv ->
@@ -189,7 +191,7 @@ fun LayoutScreen(c: EscribaController) {
                         if (s.page.bleed != BleedPreset.Sem) append(" · sangria ${fmt(s.page.bleed.mm)} mm")
                     }
                 }
-                Text(summary, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(summary, style = MaterialTheme.typography.bodyMedium, color = LocalPalette.current.muted)
             }
             if (tab == LayoutTab.Capa) {
                 IconAction(Icons.Outlined.ViewInAr, "Livro 3D: o livro pronto, nas medidas reais", onClick = { show3d = !show3d }, selected = show3d)
@@ -206,12 +208,18 @@ fun LayoutScreen(c: EscribaController) {
                 ThemePicker(s.theme) { c.applyLayoutTheme(it) }
                 Spacer(Modifier.width(12.dp))
                 val shownZoom = zoomSetting ?: lastFitZoom
-                IconAction(Icons.Outlined.ZoomOut, "Diminuir", onClick = { zoomSetting = (shownZoom - 0.1f).coerceAtLeast(0.3f) })
-                Text("${(shownZoom * 100).roundToInt()}%", style = MaterialTheme.typography.labelLarge, modifier = Modifier.width(44.dp))
-                IconAction(Icons.Outlined.ZoomIn, "Aumentar", onClick = { zoomSetting = (shownZoom + 0.1f).coerceAtMost(2.5f) })
-                IconAction(Icons.Outlined.FitScreen, "Ajustar à largura", onClick = { zoomSetting = null }, selected = zoomSetting == null)
-                IconAction(Icons.Outlined.GridOn, "Mostrar e ajustar as margens (arraste a mancha na página)", onClick = { guides = !guides }, selected = guides)
-                Spacer(Modifier.width(8.dp))
+                // Zoom e guias numa pílula só.
+                FloatingPanel {
+                    Row(Modifier.padding(horizontal = 4.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                        IconAction(Icons.Outlined.ZoomOut, "Diminuir", onClick = { zoomSetting = (shownZoom - 0.1f).coerceAtLeast(0.3f) })
+                        Text("${(shownZoom * 100).roundToInt()}%", style = MaterialTheme.typography.labelLarge, modifier = Modifier.width(44.dp), textAlign = TextAlign.Center)
+                        IconAction(Icons.Outlined.ZoomIn, "Aumentar", onClick = { zoomSetting = (shownZoom + 0.1f).coerceAtMost(2.5f) })
+                        IconAction(Icons.Outlined.FitScreen, "Ajustar à largura", onClick = { zoomSetting = null }, selected = zoomSetting == null)
+                        Box(Modifier.padding(horizontal = 4.dp).width(1.dp).height(20.dp).background(LocalPalette.current.hairline))
+                        IconAction(Icons.Outlined.GridOn, "Mostrar e ajustar as margens (arraste a mancha na página)", onClick = { guides = !guides }, selected = guides)
+                    }
+                }
+                Spacer(Modifier.width(12.dp))
                 Button(onClick = { c.exportLayoutPdf() }, enabled = laid != null && !c.layoutBusy) {
                     Icon(Icons.Outlined.PictureAsPdf, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
@@ -380,11 +388,13 @@ private fun BookIndex(c: EscribaController, laid: LaidOutBook?, modifier: Modifi
     }
 }
 
-private val LIGHT_COLORS = mapOf(
-    CheckLight.Vermelho to Color(0xFFC0392B),
-    CheckLight.Amarelo to Color(0xFFD99A0B),
-    CheckLight.Verde to Color(0xFF3C8D4E),
-)
+/** Cor do semáforo da conferência, a partir dos tons de estado do tema. */
+@Composable
+private fun lightColor(light: CheckLight): Color = when (light) {
+    CheckLight.Vermelho -> LocalPalette.current.danger
+    CheckLight.Amarelo -> LocalPalette.current.warning
+    CheckLight.Verde -> LocalPalette.current.success
+}
 
 /** Semáforo da conferência, com consertos de um clique, e a ficha técnica para orçamento. */
 @Composable
@@ -392,9 +402,9 @@ private fun LayoutChecks(c: EscribaController, laid: LaidOutBook, onJump: (Int) 
     val checks = remember(laid) { checkLayout(laid) }
     val light = checks.light()
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(10.dp).clip(CircleShape).background(LIGHT_COLORS.getValue(light)))
+        Box(Modifier.size(10.dp).clip(CircleShape).background(lightColor(light)))
         Spacer(Modifier.width(8.dp))
-        Text("CONFERÊNCIA", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Overline("Conferência")
     }
     Text(light.label.replaceFirstChar(Char::uppercase), style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 2.dp, bottom = 4.dp))
     checks.sortedBy { it.level }.forEach { item ->
@@ -463,21 +473,7 @@ private fun IndexRow(label: String, page: Int, onClick: () -> Unit) {
 
 @Composable
 private fun TabSwitch(current: LayoutTab, onPick: (LayoutTab) -> Unit) {
-    Row(Modifier.clip(RoundedCornerShape(10.dp)).border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp))) {
-        LayoutTab.entries.forEach { t ->
-            val selected = t == current
-            Box(
-                Modifier.background(if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
-                    .clickable { onPick(t) }.padding(horizontal = 18.dp, vertical = 7.dp),
-            ) {
-                Text(
-                    t.label, style = MaterialTheme.typography.labelLarge,
-                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
-                )
-            }
-        }
-    }
+    SegmentedControl(LayoutTab.entries.map { it.label }, LayoutTab.entries.indexOf(current), { onPick(LayoutTab.entries[it]) })
 }
 
 @Composable
@@ -956,14 +952,14 @@ private fun Group(title: String, initiallyOpen: Boolean = true, content: @Compos
     var open by remember { mutableStateOf(initiallyOpen) }
     Column(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
         Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { open = !open }.padding(vertical = 8.dp),
+            Modifier.fillMaxWidth().clip(Radius.control).clickable { open = !open }.padding(vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(title.uppercase(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = LocalPalette.current.accent, modifier = Modifier.weight(1f))
-            Icon(if (open) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, null, Modifier.size(18.dp))
+            Overline(title, Modifier.weight(1f))
+            Icon(if (open) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, null, Modifier.size(16.dp), tint = LocalPalette.current.muted)
         }
-        if (open) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { content() }
-        HorizontalDivider(Modifier.padding(top = 10.dp), color = MaterialTheme.colorScheme.outlineVariant)
+        if (open) Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { content() }
+        HorizontalDivider(Modifier.padding(top = 12.dp), color = LocalPalette.current.hairline)
     }
 }
 
@@ -1073,25 +1069,8 @@ private fun SwitchLine(label: String, checked: Boolean, onChange: (Boolean) -> U
 
 @Composable
 private fun <T> Segmented(label: String, options: List<T>, value: T, text: (T) -> String, onPick: (T) -> Unit) {
-    Column {
-        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp)),
-        ) {
-            options.forEach { o ->
-                val selected = o == value
-                Box(
-                    Modifier.weight(1f).background(if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
-                        .clickable { onPick(o) }.padding(vertical = 9.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text(o), style = MaterialTheme.typography.labelMedium, maxLines = 1,
-                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                        color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
-                    )
-                }
-            }
-        }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = LocalPalette.current.muted)
+        SegmentedControl(options.map(text), options.indexOf(value), { onPick(options[it]) }, Modifier.fillMaxWidth(), dense = true, equal = true)
     }
 }

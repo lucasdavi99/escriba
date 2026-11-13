@@ -13,6 +13,9 @@ expect fun localDayKey(epochMillis: Long): String
 
 expect fun formatDateTime(epochMillis: Long): String
 
+/** Hora local (0–23), para saudações. */
+expect fun localHour(epochMillis: Long): Int
+
 /** Pasta padrão onde os livros (`*.escriba`) ficam. */
 expect fun defaultLibraryDir(): String
 

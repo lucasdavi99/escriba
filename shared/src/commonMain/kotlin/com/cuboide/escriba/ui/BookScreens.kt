@@ -1,5 +1,17 @@
 package com.cuboide.escriba.ui
 
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.border
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -77,63 +89,76 @@ fun GoalsScreen(c: EscribaController) {
     val book = c.book ?: return
     val m = book.manifest
     val p = c.productivity
-    SectionPage("Metas e progresso", "Acompanhe o ritmo de escrita de “${m.title}”") {
-        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                RingCard("Hoje", p.today.words, m.dailyGoal, "palavras", Modifier.weight(1f))
-                RingCard("Livro", c.bookWords, m.bookGoal, "palavras", Modifier.weight(1f))
-                Card(Modifier.weight(1f)) {
-                    Text("SEQUÊNCIA", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("${p.streakDays}", style = MaterialTheme.typography.displayMedium)
-                    Text("dia(s) seguidos escrevendo", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(8.dp))
-                    Text("Tempo ativo hoje: ${p.today.activeSeconds / 60} min", style = MaterialTheme.typography.bodySmall)
-                    Text("Melhor dia: ${p.bestDay?.let { "${it.second} em ${it.first}" } ?: "—"}", style = MaterialTheme.typography.bodySmall)
+    val palette = LocalPalette.current
+    var allChapters by remember { mutableStateOf(false) }
+    SectionPage("Metas", "O ritmo de escrita de “${m.title}”") {
+        Column(Modifier.verticalScroll(rememberScrollState()).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(32.dp)) {
+            // Faixa principal: os dois anéis e a sequência, sem caixas.
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(48.dp), modifier = Modifier.padding(top = 4.dp)) {
+                GoalRing("Hoje", p.today.words, m.dailyGoal)
+                GoalRing("Livro", c.bookWords, m.bookGoal)
+                VHairline(Modifier.height(96.dp))
+                Column {
+                    Overline("Sequência")
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text("${p.streakDays}", style = MaterialTheme.typography.displayMedium)
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (p.streakDays == 1) "dia seguido" else "dias seguidos", style = MaterialTheme.typography.bodyMedium, color = palette.muted, modifier = Modifier.padding(bottom = 10.dp))
+                    }
+                    Text(
+                        "Tempo ativo hoje: ${p.today.activeSeconds / 60} min · Melhor dia: ${p.bestDay?.let { "${it.second} em ${DayKey.shortLabel(it.first)}" } ?: "—"}",
+                        style = MaterialTheme.typography.bodySmall, color = palette.muted,
+                    )
                 }
             }
-            Card(Modifier.fillMaxWidth()) {
-                Text("Definir metas", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(8.dp))
-                var daily by remember(m.dailyGoal) { mutableStateOf(m.dailyGoal.toString()) }
-                var total by remember(m.bookGoal) { mutableStateOf(m.bookGoal.toString()) }
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(daily, { daily = it.filter(Char::isDigit).take(7) }, label = { Text("Palavras por dia") }, singleLine = true, shape = RoundedCornerShape(12.dp))
-                    OutlinedTextField(total, { total = it.filter(Char::isDigit).take(8) }, label = { Text("Palavras no livro") }, singleLine = true, shape = RoundedCornerShape(12.dp))
-                    Button(onClick = { c.setGoals(daily.toIntOrNull() ?: 0, total.toIntOrNull() ?: 0); c.message = "Metas atualizadas." }) { Text("Salvar") }
-                }
+            // As metas, editáveis numa linha.
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                var daily by remember(m.dailyGoal) { mutableStateOf(TextFieldValue(m.dailyGoal.toString())) }
+                var total by remember(m.bookGoal) { mutableStateOf(TextFieldValue(m.bookGoal.toString())) }
+                Text("Meta diária", style = MaterialTheme.typography.bodyMedium, color = palette.muted)
+                CompactField(daily, { daily = it.copy(text = it.text.filter(Char::isDigit).take(7)) }, "palavras por dia", Modifier.width(110.dp))
+                Spacer(Modifier.width(12.dp))
+                Text("Meta do livro", style = MaterialTheme.typography.bodyMedium, color = palette.muted)
+                CompactField(total, { total = it.copy(text = it.text.filter(Char::isDigit).take(8)) }, "palavras no livro", Modifier.width(120.dp))
+                val changed = daily.text != m.dailyGoal.toString() || total.text != m.bookGoal.toString()
+                FilledTonalButton(enabled = changed, onClick = { c.setGoals(daily.text.toIntOrNull() ?: 0, total.text.toIntOrNull() ?: 0); c.message = "Metas atualizadas." }) { Text("Salvar") }
             }
-            Card(Modifier.fillMaxWidth()) {
-                Text("Últimas 12 semanas", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(12.dp))
+            Hairline()
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text("Últimas 12 semanas", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Normal))
                 WeeksHeatmap(p.recent.map { it.first to it.second.words }, m.dailyGoal)
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Card(Modifier.weight(1f)) {
-                    Text("Últimos 14 dias", style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.height(12.dp))
+            Hairline()
+            Row(horizontalArrangement = Arrangement.spacedBy(56.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Text("Últimos 14 dias", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Normal))
                     DayBars(p.recent.takeLast(14).map { it.first.takeLast(2) to it.second.words }, m.dailyGoal)
                 }
-                Card(Modifier.weight(1f)) {
-                    Text("Capítulos", style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.height(12.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Capítulos", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Normal))
                     val max = (m.chapters.maxOfOrNull { it.words } ?: 0).coerceAtLeast(1)
-                    m.chapters.forEach { ch ->
-                        Row(Modifier.padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(ch.title, Modifier.width(140.dp), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Box(Modifier.weight(1f).height(10.dp).clip(RoundedCornerShape(5.dp)).background(MaterialTheme.colorScheme.surfaceContainerHighest)) {
+                    val shown = if (allChapters) m.chapters else m.chapters.take(8)
+                    shown.forEach { ch ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(ch.title, Modifier.width(150.dp), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Box(Modifier.weight(1f).height(4.dp).clip(RoundedCornerShape(2.dp)).background(palette.hairline)) {
                                 Box(Modifier.fillMaxWidth(ch.words.toFloat() / max).fillMaxHeight().background(statusColor(ch.status)))
                             }
-                            Text("${ch.words}", Modifier.width(56.dp), style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.End)
+                            Text("${ch.words}", Modifier.width(56.dp), style = MaterialTheme.typography.labelMedium, color = palette.muted, textAlign = TextAlign.End)
                         }
                     }
-                    Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (m.chapters.size > 8) {
+                        TextButton(onClick = { allChapters = !allChapters }, contentPadding = PaddingValues(0.dp)) {
+                            Text(if (allChapters) "Mostrar menos" else "Ver todos (${m.chapters.size})")
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.padding(top = 4.dp)) {
                         ChapterStatus.entries.forEach { s ->
                             val n = m.chapters.count { it.status == s }
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(Modifier.size(8.dp).clip(RoundedCornerShape(2.dp)).background(statusColor(s)))
-                                Spacer(Modifier.width(4.dp))
-                                Text("${s.label} $n", style = MaterialTheme.typography.labelSmall)
+                                StatusDot(statusColor(s), 6.dp)
+                                Spacer(Modifier.width(5.dp))
+                                Text("${s.label} $n", style = MaterialTheme.typography.labelMedium, color = palette.muted)
                             }
                         }
                     }
@@ -143,34 +168,30 @@ fun GoalsScreen(c: EscribaController) {
     }
 }
 
+/** Anel fino de progresso com o percentual no meio e o número ao lado. */
 @Composable
-private fun Card(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    Surface(modifier, shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-        Column(Modifier.padding(20.dp)) { content() }
-    }
-}
-
-@Composable
-private fun RingCard(label: String, value: Int, goal: Int, unit: String, modifier: Modifier) {
-    Card(modifier) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(
-                    progress = { if (goal > 0) (value.toFloat() / goal).coerceIn(0f, 1f) else 0f },
-                    modifier = Modifier.size(96.dp),
-                    strokeWidth = 9.dp,
-                    trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                    gapSize = 0.dp,
-                )
-                Text(if (goal > 0) "${(value * 100L / goal).coerceAtMost(999)}%" else "—", style = MaterialTheme.typography.titleMedium)
+private fun GoalRing(label: String, value: Int, goal: Int) {
+    val palette = LocalPalette.current
+    val f = if (goal > 0) (value.toFloat() / goal).coerceIn(0f, 1f) else 0f
+    val anim by animateFloatAsState(f, tween(700))
+    val done = goal in 1..value
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(104.dp), contentAlignment = Alignment.Center) {
+            Canvas(Modifier.matchParentSize()) {
+                val stroke = 5.dp.toPx()
+                val inset = stroke / 2
+                val arcSize = androidx.compose.ui.geometry.Size(size.width - stroke, size.height - stroke)
+                drawArc(palette.hairline, 0f, 360f, false, androidx.compose.ui.geometry.Offset(inset, inset), arcSize, style = Stroke(stroke))
+                drawArc(if (done) palette.success else palette.accent, -90f, 360f * anim, false, androidx.compose.ui.geometry.Offset(inset, inset), arcSize, style = Stroke(stroke, cap = StrokeCap.Round))
             }
-            Spacer(Modifier.width(20.dp))
-            Column {
-                Text(label.uppercase(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("$value", style = MaterialTheme.typography.headlineMedium)
-                Text(if (goal > 0) "de $goal $unit" else "sem meta definida", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (goal in 1..value) Text("Meta atingida!", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-            }
+            Text(if (goal > 0) "${(value * 100L / goal).coerceAtMost(999)}%" else "—", style = MaterialTheme.typography.titleLarge)
+        }
+        Spacer(Modifier.width(20.dp))
+        Column {
+            Overline(label)
+            Text("$value", style = MaterialTheme.typography.headlineLarge)
+            Text(if (goal > 0) "de $goal palavras" else "sem meta definida", style = MaterialTheme.typography.bodySmall, color = palette.muted)
+            if (done) Text("Meta atingida", style = MaterialTheme.typography.labelMedium, color = palette.success)
         }
     }
 }
@@ -180,8 +201,8 @@ private fun RingCard(label: String, value: Int, goal: Int, unit: String, modifie
 private fun WeeksHeatmap(days: List<Pair<String, Int>>, dailyGoal: Int) {
     val words = days.toMap()
     val reference = if (dailyGoal > 0) dailyGoal else (words.values.maxOrNull() ?: 1).coerceAtLeast(1)
-    val primary = MaterialTheme.colorScheme.primary
-    val empty = MaterialTheme.colorScheme.surfaceContainerHighest
+    val primary = LocalPalette.current.accent
+    val empty = LocalPalette.current.hairline
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val columns = remember(days) { heatmapColumns(days.map { it.first }) }
     val cell = 16.dp
@@ -234,8 +255,8 @@ private fun DayBars(days: List<Pair<String, Int>>, goal: Int) {
         days.forEach { (day, w) ->
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                 Box(
-                    Modifier.fillMaxWidth().height((110 * w / max).coerceAtLeast(2).dp).clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
-                        .background(if (goal in 1..w) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)),
+                    Modifier.fillMaxWidth().height((110 * w / max).coerceAtLeast(2).dp).clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
+                        .background(if (goal in 1..w) LocalPalette.current.accent else LocalPalette.current.accent.copy(alpha = 0.35f)),
                 )
                 Text(day, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -267,16 +288,15 @@ fun VersionsScreen(c: EscribaController) {
         },
     ) {
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-            LazyColumn(Modifier.width(300.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            LazyColumn(Modifier.width(300.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 items(c.snapshots, key = { it.id }) { s ->
                     val isSel = (selected ?: c.snapshots.firstOrNull())?.id == s.id
-                    Column(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-                            .background(if (isSel) MaterialTheme.colorScheme.surfaceContainerHighest else MaterialTheme.colorScheme.surfaceContainerLow)
-                            .clickable { selected = s }.padding(14.dp),
-                    ) {
-                        Text(s.label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                        Text("${formatDateTime(s.createdAt)} · ${s.words} palavras", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    HoverRow(isSel, onClick = { selected = s }, Modifier.fillMaxWidth()) {
+                        Box(Modifier.padding(start = 12.dp).size(8.dp).clip(CircleShape).background(if (isSel) LocalPalette.current.accent else LocalPalette.current.hairline))
+                        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                            Text(s.label, style = MaterialTheme.typography.bodyMedium, fontWeight = if (isSel) FontWeight.SemiBold else FontWeight.Medium)
+                            Text("${formatDateTime(s.createdAt)} · ${s.words} palavras", style = MaterialTheme.typography.labelSmall, color = LocalPalette.current.muted)
+                        }
                     }
                 }
             }
@@ -302,11 +322,11 @@ private fun DiffView(c: EscribaController, snapshot: Snapshot, onDone: () -> Uni
     val segments = remember(before, now) { diffWords(before, now) }
     val stats = remember(segments) { diffStats(segments) }
     val formattingOnly = before == now && snapshot.body != current
-    Surface(Modifier.fillMaxSize(), shape = RoundedCornerShape(20.dp), color = palette.paper) {
-        Column(Modifier.padding(24.dp)) {
+    Surface(Modifier.fillMaxSize(), shape = Radius.surface, color = palette.paper, border = androidx.compose.foundation.BorderStroke(1.dp, palette.hairline)) {
+        Column(Modifier.padding(horizontal = 40.dp, vertical = 28.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(snapshot.label, style = MaterialTheme.typography.titleLarge, color = palette.ink)
+                    Text(snapshot.label, style = MaterialTheme.typography.headlineSmall, color = palette.ink)
                     Text(
                         "${formatDateTime(snapshot.createdAt)} → agora · +${stats.insertedWords} / −${stats.deletedWords} palavras",
                         style = MaterialTheme.typography.labelMedium, color = palette.ink.copy(alpha = 0.6f),
@@ -323,8 +343,8 @@ private fun DiffView(c: EscribaController, snapshot: Snapshot, onDone: () -> Uni
                 )
             }
             Spacer(Modifier.height(16.dp))
-            HorizontalDivider()
-            Spacer(Modifier.height(16.dp))
+            Hairline()
+            Spacer(Modifier.height(20.dp))
             Text(
                 buildAnnotatedString {
                     for (seg in segments) when (seg.kind) {
@@ -348,15 +368,27 @@ private fun DiffView(c: EscribaController, snapshot: Snapshot, onDone: () -> Uni
 fun SearchScreen(c: EscribaController) {
     val palette = LocalPalette.current
     SectionPage("Busca", "Encontre qualquer trecho em todos os capítulos (Ctrl+Shift+F)") {
-        OutlinedTextField(
+        // Campo grande, só com um fio embaixo: a busca é o assunto da tela.
+        BasicTextField(
             value = c.bookSearchQuery,
             onValueChange = { c.bookSearchQuery = it; c.runBookSearch() },
             singleLine = true,
-            leadingIcon = { Icon(Icons.Outlined.Search, null) },
-            placeholder = { Text("Buscar no livro…") },
-            shape = RoundedCornerShape(16.dp),
+            textStyle = MaterialTheme.typography.headlineMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+            cursorBrush = SolidColor(palette.accent),
             modifier = Modifier.fillMaxWidth(),
-            textStyle = MaterialTheme.typography.titleMedium,
+            decorationBox = { inner ->
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 10.dp)) {
+                        Icon(Icons.Outlined.Search, null, Modifier.size(26.dp), tint = palette.muted)
+                        Spacer(Modifier.width(14.dp))
+                        Box(Modifier.weight(1f)) {
+                            if (c.bookSearchQuery.isEmpty()) Text("Buscar no livro…", style = MaterialTheme.typography.headlineMedium, color = palette.muted.copy(alpha = 0.6f))
+                            inner()
+                        }
+                    }
+                    Box(Modifier.fillMaxWidth().height(1.5.dp).background(if (c.bookSearchQuery.isEmpty()) palette.hairline else palette.accent))
+                }
+            },
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
             Toggle("Maiúsculas", c.findOptions.matchCase) { c.findOptions = c.findOptions.copy(matchCase = it); c.runBookSearch() }
@@ -377,7 +409,11 @@ fun SearchScreen(c: EscribaController) {
         LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             c.bookSearchHits.groupBy { it.chapterTitle to it.chapterId }.forEach { (key, hits) ->
                 item(key = "h-${key.second}") {
-                    Text("${key.first}  ·  ${hits.size}", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
+                    Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(top = 20.dp, bottom = 6.dp)) {
+                        Text(key.first, style = MaterialTheme.typography.titleLarge)
+                        Spacer(Modifier.width(10.dp))
+                        Text("${hits.size}", style = MaterialTheme.typography.labelMedium, color = palette.muted, modifier = Modifier.padding(bottom = 3.dp))
+                    }
                 }
                 items(hits) { hit ->
                     Text(
@@ -388,10 +424,11 @@ fun SearchScreen(c: EscribaController) {
                         },
                         fontFamily = LocalFonts.current.book,
                         style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-                            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                        modifier = Modifier.fillMaxWidth().clip(Radius.surface)
                             .clickable { c.openHit(hit); c.goTo(Section.Manuscrito) }
-                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                            .border(1.dp, palette.hairline, Radius.surface)
+                            .background(palette.paper)
+                            .padding(horizontal = 18.dp, vertical = 12.dp),
                     )
                 }
             }
@@ -425,35 +462,38 @@ fun ExportScreen(c: EscribaController) {
     var genre by remember(m.id) { mutableStateOf(m.genre) }
     var synopsis by remember(m.id) { mutableStateOf(m.synopsis) }
     SectionPage("Exportar", "Gere arquivos do livro para revisão, envio ou publicação") {
-        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(32.dp)) {
             Column(Modifier.width(360.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Dados do livro", style = MaterialTheme.typography.titleMedium)
-                Text("Usados na folha de rosto dos arquivos.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                OutlinedTextField(title, { title = it }, label = { Text("Título") }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
-                OutlinedTextField(author, { author = it }, label = { Text("Autor(a)") }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
-                OutlinedTextField(genre, { genre = it }, label = { Text("Gênero") }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
-                OutlinedTextField(synopsis, { synopsis = it }, label = { Text("Sinopse") }, minLines = 4, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
+                Text("Dados do livro", style = MaterialTheme.typography.headlineSmall)
+                Text("Usados na folha de rosto dos arquivos.", style = MaterialTheme.typography.bodySmall, color = LocalPalette.current.muted)
+                OutlinedTextField(title, { title = it }, label = { Text("Título") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(author, { author = it }, label = { Text("Autor(a)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(genre, { genre = it }, label = { Text("Gênero") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(synopsis, { synopsis = it }, label = { Text("Sinopse") }, minLines = 4, modifier = Modifier.fillMaxWidth())
                 Button(onClick = {
                     c.updateBookDetails(title, author, synopsis, genre, m.dailyGoal, m.bookGoal); c.message = "Dados do livro salvos."
                 }) { Text("Salvar dados") }
             }
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            VHairline()
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 8.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
+                Text("Formatos", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(bottom = 12.dp))
+                Hairline()
                 ExportFormat.entries.forEach { f ->
-                    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                        Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.secondaryContainer), contentAlignment = Alignment.Center) {
-                                Icon(f.icon, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
-                            }
-                            Spacer(Modifier.width(16.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(f.label, style = MaterialTheme.typography.titleMedium)
-                                Text(f.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Spacer(Modifier.width(12.dp))
-                            OutlinedButton(onClick = { c.export(f) }) { Text("Exportar") }
+                    Row(Modifier.fillMaxWidth().padding(vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(44.dp).clip(Radius.surface).background(LocalPalette.current.accentSoft), contentAlignment = Alignment.Center) {
+                            Icon(f.icon, null, Modifier.size(20.dp), tint = LocalPalette.current.accent)
                         }
+                        Spacer(Modifier.width(18.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(f.label, style = MaterialTheme.typography.titleLarge)
+                            Text(f.description, style = MaterialTheme.typography.bodySmall, color = LocalPalette.current.muted)
+                        }
+                        Spacer(Modifier.width(16.dp))
+                        OutlinedButton(onClick = { c.export(f) }) { Text("Exportar") }
                     }
+                    Hairline()
                 }
+                Spacer(Modifier.height(14.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.AutoMirrored.Outlined.Article, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.width(6.dp))

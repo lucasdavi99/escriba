@@ -4,9 +4,9 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 enum class ThemeId(val label: String, val description: String) {
-    Papel("Papel", "Creme e verde-musgo"),
+    Papel("Papel", "Claro, tinta e terracota"),
     Sepia("Sépia", "Claro e quente"),
-    Tinta("Tinta", "Azul-noite e âmbar"),
+    Tinta("Tinta", "Grafite e âmbar"),
     Floresta("Floresta", "Escuro e esverdeado"),
 }
 
@@ -33,6 +33,8 @@ data class AppSettings(
     /** Travessão, reticências, aspas curvas e maiúscula no começo do parágrafo enquanto se digita. */
     val smartTypography: Boolean = true,
     val navExpanded: Boolean = true,
+    /** Grupo "Ferramentas" (Metas, Versões, Busca, Diagramação, Exportar) aberto no menu lateral. */
+    val navToolsExpanded: Boolean = false,
     val trashRetentionDays: Int = TrashStore.DEFAULT_RETENTION_DAYS,
     /** Conferir contradições do texto com as fichas enquanto se escreve (marcas no Manuscrito). */
     val checkContradictions: Boolean = false,

@@ -1,5 +1,8 @@
 package com.cuboide.escriba.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -110,35 +113,34 @@ fun AcervoScreen(c: EscribaController) {
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun FlowRowCards(c: EscribaController, onDelete: (AcervoSummary) -> Unit) {
-    val scheme = MaterialTheme.colorScheme
-    FlowRow(Modifier.verticalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    val palette = LocalPalette.current
+    Column(Modifier.verticalScroll(rememberScrollState()).widthIn(max = 920.dp)) {
+        if (c.acervoList.isNotEmpty()) Hairline()
         c.acervoList.forEach { u ->
-            Surface(
-                Modifier.width(300.dp).clip(RoundedCornerShape(14.dp)).clickable { c.openAcervoUniverse(u.path) }
-                    .semantics { contentDescription = "Universo ${u.meta.name}" },
-                shape = RoundedCornerShape(14.dp), color = scheme.surface, border = BorderStroke(1.dp, scheme.outlineVariant),
-            ) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(if (u.meta.saga) Icons.Outlined.Link else Icons.Outlined.Inventory2, null, Modifier.size(18.dp), tint = LocalPalette.current.accent)
-                        Spacer(Modifier.width(8.dp))
-                        Text(u.meta.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                        IconAction(Icons.Outlined.Close, "Apagar universo ${u.meta.name}", onClick = { onDelete(u) })
-                    }
+            HoverRow(false, onClick = { c.openAcervoUniverse(u.path) }, Modifier.fillMaxWidth().semantics { contentDescription = "Universo ${u.meta.name}" }) { hovered ->
+                Box(
+                    Modifier.padding(start = 14.dp).size(40.dp).clip(RoundedCornerShape(10.dp)).background(palette.accentSoft),
+                    contentAlignment = Alignment.Center,
+                ) { Icon(if (u.meta.saga) Icons.Outlined.Link else Icons.Outlined.Inventory2, null, Modifier.size(18.dp), tint = palette.accent) }
+                Column(Modifier.weight(1f).padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(u.meta.name, style = MaterialTheme.typography.titleLarge)
                     when {
-                        u.meta.saga -> Text("Saga · ${u.meta.bookPaths.size} livro(s) com as mesmas fichas", style = MaterialTheme.typography.labelMedium, color = scheme.primary)
-                        u.meta.sourceTitle != null -> Text("Importado de “${u.meta.sourceTitle}”", style = MaterialTheme.typography.labelMedium, color = scheme.onSurfaceVariant)
+                        u.meta.saga -> Text("Saga · ${u.meta.bookPaths.size} livro(s) com as mesmas fichas", style = MaterialTheme.typography.labelMedium, color = palette.accent)
+                        u.meta.sourceTitle != null -> Text("Importado de “${u.meta.sourceTitle}”", style = MaterialTheme.typography.labelMedium, color = palette.muted)
                     }
-                    if (u.meta.description.isNotBlank()) Text(u.meta.description, style = MaterialTheme.typography.bodySmall)
+                    if (u.meta.description.isNotBlank()) Text(u.meta.description, style = MaterialTheme.typography.bodySmall, maxLines = 2)
                     Text(
                         EntryKind.entries.joinToString(" · ") { k -> "${u.byKind[k] ?: 0} ${k.plural.lowercase()}" },
-                        style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall, color = palette.muted,
                     )
                 }
+                Box(Modifier.padding(end = 10.dp).alpha(if (hovered) 1f else 0.4f)) {
+                    IconAction(Icons.Outlined.Close, "Apagar universo ${u.meta.name}", onClick = { onDelete(u) }, size = 32.dp)
+                }
             }
+            Hairline()
         }
     }
 }

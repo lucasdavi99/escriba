@@ -1,6 +1,11 @@
 package com.cuboide.escriba.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -143,12 +148,20 @@ import com.cuboide.escriba.core.text.readingMinutes
 import com.cuboide.escriba.core.text.stripMarkup
 import com.cuboide.escriba.platform.formatDateTime
 
+/** Escala única de status (a mesma das cenas do Enredo): ideia, rascunho, revisão, pronto. */
 @Composable
-fun statusColor(status: ChapterStatus): Color = when (status) {
-    ChapterStatus.Ideia -> MaterialTheme.colorScheme.outline
-    ChapterStatus.Rascunho -> MaterialTheme.colorScheme.secondary
-    ChapterStatus.Revisao -> MaterialTheme.colorScheme.tertiary
-    ChapterStatus.Final -> MaterialTheme.colorScheme.primary
+fun statusColor(status: ChapterStatus): Color = statusTone(status.ordinal)
+
+/** Os quatro degraus da escala de status: 0 discreto, 1 rascunho, 2 revisão, 3 pronto. */
+@Composable
+fun statusTone(step: Int): Color {
+    val p = LocalPalette.current
+    return when (step) {
+        0 -> p.muted.copy(alpha = 0.7f)
+        1 -> p.warning
+        2 -> p.info
+        else -> p.success
+    }
 }
 
 /** Palavras por página de livro, para a estimativa "página x de y" da barra de status. */
@@ -225,16 +238,16 @@ fun ManuscriptScreen(c: EscribaController) {
         Row(Modifier.fillMaxSize()) {
             if (chaptersVisible) {
                 ChaptersPanel(c, Modifier.width(CHAPTERS_WIDTH).fillMaxHeight())
-                VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                VHairline()
             }
-            Column(Modifier.weight(1f).fillMaxHeight()) {
+            Column(Modifier.weight(1f).fillMaxHeight().background(LocalPalette.current.desk)) {
                 if (!c.focusMode) WritingToolbar(c, chaptersVisible, inspectorVisible)
                 if (c.findVisible && !c.focusMode) FindBar(c)
                 Desk(c, Modifier.weight(1f))
                 if (!c.focusMode) StatusBar(c)
             }
             if (inspectorVisible) {
-                VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                VHairline()
                 Inspector(c, Modifier.width(INSPECTOR_WIDTH).fillMaxHeight())
             }
         }
@@ -246,40 +259,45 @@ fun ManuscriptScreen(c: EscribaController) {
 @Composable
 private fun ChaptersPanel(c: EscribaController, modifier: Modifier) {
     val book = c.book ?: return
+    val palette = LocalPalette.current
     val chapters = book.manifest.chapters
     val numbers = c.chapterNumbers
     var partsMenu by remember { mutableStateOf(false) }
-    Column(modifier.background(MaterialTheme.colorScheme.surfaceContainerLow)) {
-        Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 18.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Column(modifier.background(MaterialTheme.colorScheme.background)) {
+        Row(Modifier.fillMaxWidth().padding(start = 22.dp, end = 10.dp, top = 22.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Capítulos", style = MaterialTheme.typography.titleLarge)
-                Text("${numbers.size} capítulo(s) · ${chapters.size - numbers.size} parte(s)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Capítulos", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Normal))
+                val parts = chapters.size - numbers.size
+                Text(
+                    "${numbers.size} ${if (numbers.size == 1) "capítulo" else "capítulos"}" + if (parts > 0) " · $parts ${if (parts == 1) "parte" else "partes"}" else "",
+                    style = MaterialTheme.typography.labelMedium, color = palette.muted,
+                )
             }
             Box {
-                IconAction(Icons.Outlined.AutoStories, "Nova parte do livro (prólogo, dedicatória, epílogo…)", onClick = { partsMenu = true })
+                IconAction(Icons.Outlined.AutoStories, "Nova parte do livro (prólogo, dedicatória, epílogo…)", onClick = { partsMenu = true }, size = 32.dp)
                 DropdownMenu(expanded = partsMenu, onDismissRequest = { partsMenu = false }) {
                     PartKindItems { kind -> partsMenu = false; c.addPart(kind) }
                 }
             }
-            IconAction(Icons.Outlined.Add, "Novo capítulo", onClick = { c.addChapter() })
+            IconAction(Icons.Outlined.Add, "Novo capítulo", onClick = { c.addChapter() }, size = 32.dp)
         }
-        LazyColumn(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+        LazyColumn(Modifier.weight(1f).padding(horizontal = 10.dp)) {
             itemsIndexed(chapters, key = { _, ch -> ch.id }) { index, chapter ->
                 ChapterItem(c, chapter, numbers[chapter.id], index, chapters.size)
             }
         }
+        Hairline()
         val goal = book.manifest.bookGoal
-        Column(Modifier.fillMaxWidth().padding(20.dp)) {
-            Row {
-                Text("Livro", style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
-                Text(if (goal > 0) "${c.bookWords} / $goal" else "${c.bookWords}", style = MaterialTheme.typography.labelMedium)
+        Column(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 16.dp)) {
+            Row(verticalAlignment = Alignment.Bottom) {
+                Overline("Livro", Modifier.weight(1f))
+                Text(if (goal > 0) "${c.bookWords} de $goal" else "${c.bookWords} palavras", style = MaterialTheme.typography.labelMedium, color = palette.muted)
             }
-            Spacer(Modifier.height(6.dp))
-            LinearProgressIndicator(
-                progress = { if (goal > 0) (c.bookWords.toFloat() / goal).coerceIn(0f, 1f) else 0f },
-                modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
-                drawStopIndicator = {},
-            )
+            Spacer(Modifier.height(8.dp))
+            val f = if (goal > 0) (c.bookWords.toFloat() / goal).coerceIn(0f, 1f) else 0f
+            Box(Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp)).background(palette.hairline)) {
+                Box(Modifier.fillMaxWidth(f).fillMaxHeight().background(palette.accent))
+            }
         }
     }
 }
@@ -288,63 +306,52 @@ private fun ChaptersPanel(c: EscribaController, modifier: Modifier) {
 @Composable
 private fun PartKindItems(onPick: (ChapterKind) -> Unit) {
     BookPartGroup.entries.forEach { group ->
-        Text(
-            group.label.uppercase(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 12.dp, top = 8.dp, bottom = 2.dp),
-        )
+        Overline(group.label, Modifier.padding(start = 12.dp, top = 10.dp, bottom = 2.dp))
         ChapterKind.entries.filter { it.group == group }.forEach { kind ->
             DropdownMenuItem(text = { Text(kind.label) }, onClick = { onPick(kind) })
         }
     }
-    HorizontalDivider()
+    HorizontalDivider(color = LocalPalette.current.hairline)
     Text(
         "Não contam como capítulo nem entram na numeração.", style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(12.dp).widthIn(max = 220.dp),
+        color = LocalPalette.current.muted, modifier = Modifier.padding(12.dp).widthIn(max = 220.dp),
     )
 }
 
 @Composable
 private fun ChapterItem(c: EscribaController, chapter: ChapterMeta, number: Int?, index: Int, count: Int) {
+    val palette = LocalPalette.current
     val selected = chapter.id == c.currentChapterId
     var menu by remember { mutableStateOf(false) }
     var kindMenu by remember { mutableStateOf(false) }
     var rename by remember { mutableStateOf(false) }
     val words = if (selected) c.currentWords else chapter.words
     val color = statusColor(chapter.status)
-    Row(
-        Modifier.fillMaxWidth().padding(vertical = 2.dp).clip(RoundedCornerShape(12.dp))
-            .background(if (selected) MaterialTheme.colorScheme.surfaceContainerHighest else Color.Transparent)
-            .clickable { c.selectChapter(chapter.id) }
-            .padding(start = 12.dp, top = 10.dp, bottom = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            Modifier.size(28.dp).clip(CircleShape).background(if (selected) MaterialTheme.colorScheme.primary else color.copy(alpha = 0.15f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                number?.toString() ?: chapter.kind.label.take(1),
-                style = MaterialTheme.typography.labelMedium,
-                color = if (selected) MaterialTheme.colorScheme.onPrimary else color,
-                fontWeight = FontWeight.Bold,
-            )
-        }
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
+    HoverRow(selected, onClick = { c.selectChapter(chapter.id) }, Modifier.fillMaxWidth().padding(vertical = 1.dp)) { hovered ->
+        Box(Modifier.width(3.dp).height(30.dp).clip(RoundedCornerShape(2.dp)).background(if (selected) palette.accent else Color.Transparent))
+        Text(
+            number?.toString() ?: "§",
+            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Normal),
+            color = if (selected) palette.accent else palette.muted,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.width(36.dp),
+        )
+        Column(Modifier.weight(1f).padding(vertical = 9.dp)) {
             Text(
                 chapter.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.bodyMedium,
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
             )
+            Spacer(Modifier.height(2.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(6.dp).clip(CircleShape).background(color))
+                StatusDot(color, 6.dp)
                 Spacer(Modifier.width(6.dp))
                 val kind = if (chapter.kind == ChapterKind.Capitulo) "" else "${chapter.kind.label} · "
-                Text("$kind${chapter.status.label} · $words palavras", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("$kind${chapter.status.label} · $words palavras", style = MaterialTheme.typography.labelSmall, color = palette.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-        Box {
-            IconAction(Icons.Outlined.MoreHoriz, "Opções do capítulo", onClick = { menu = true })
+        Box(Modifier.alpha(if (selected || hovered || menu || kindMenu) 1f else 0f)) {
+            IconAction(Icons.Outlined.MoreHoriz, "Opções do capítulo", onClick = { menu = true }, size = 30.dp)
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 DropdownMenuItem(text = { Text("Renomear") }, onClick = { menu = false; rename = true })
                 DropdownMenuItem(text = { Text("Tipo: ${chapter.kind.label}…") }, onClick = { menu = false; kindMenu = true })
@@ -371,49 +378,110 @@ private fun ChapterItem(c: EscribaController, chapter: ChapterMeta, number: Int?
 @Composable
 private fun WritingToolbar(c: EscribaController, chaptersVisible: Boolean, inspectorVisible: Boolean) {
     var footnoteDialog by remember { mutableStateOf(false) }
-    Surface(color = MaterialTheme.colorScheme.surface) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Row(
-                Modifier.weight(1f).horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                ToolAction(Icons.AutoMirrored.Outlined.ViewSidebar, "Mostrar/ocultar capítulos", onClick = { c.togglePanel(chapters = true, visible = chaptersVisible) }, selected = chaptersVisible)
-                ToolbarDivider()
-                ToolAction(Icons.AutoMirrored.Outlined.Undo, "Desfazer (Ctrl+Z)", onClick = { c.undo(); c.requestEditorFocus() }, enabled = c.canUndo)
-                ToolAction(Icons.AutoMirrored.Outlined.Redo, "Refazer (Ctrl+Y)", onClick = { c.redo(); c.requestEditorFocus() }, enabled = c.canRedo)
-                ToolbarDivider()
-                MeasuresMenu(c)
-                ToolbarDivider()
-                ToolAction(Icons.Outlined.FormatBold, "Negrito (Ctrl+B)", onClick = { c.toggleMark(MarkKind.Bold) })
-                ToolAction(Icons.Outlined.FormatItalic, "Itálico (Ctrl+I)", onClick = { c.toggleMark(MarkKind.Italic) })
-                GlyphAction("Aa", "Versalete") { c.toggleMark(MarkKind.SmallCaps) }
-                ToolAction(Icons.Outlined.Superscript, "Sobrescrito", onClick = { c.toggleMark(MarkKind.Superscript) })
-                ToolAction(Icons.Outlined.Subscript, "Subscrito", onClick = { c.toggleMark(MarkKind.Subscript) })
-                GlyphAction("“ ”", "Aspas") { c.wrapQuotes() }
-                GlyphAction("—", "Travessão de diálogo") { c.insertText("— ") }
-                GlyphAction("⁂", "Quebra de cena") { c.insertSceneBreak() }
-                ToolAction(Icons.Outlined.Image, "Inserir imagem", onClick = { c.insertImage() })
-                GlyphAction("¹", "Nota de rodapé") { footnoteDialog = true }
-                ToolbarDivider()
-                GlyphAction("H1", "Título") { c.toggleBlockStyle(BlockKind.Heading1) }
-                GlyphAction("H2", "Subtítulo") { c.toggleBlockStyle(BlockKind.Heading2) }
-                GlyphAction("H3", "Chamada (texto pequeno acima do título)") { c.toggleBlockStyle(BlockKind.Heading3) }
-                ToolAction(Icons.AutoMirrored.Outlined.FormatListBulleted, "Lista", onClick = { c.toggleBlockStyle(BlockKind.ListItem) })
-                ToolAction(Icons.Outlined.FormatQuote, "Citação em bloco", onClick = { c.toggleBlockStyle(BlockKind.Quote) })
-                ToolAction(Icons.Outlined.FormatAlignCenter, "Centralizar parágrafo", onClick = { c.toggleCentered() })
-                ToolAction(Icons.Outlined.FormatClear, "Limpar formatação", onClick = { c.clearFormat() })
-                ToolbarDivider()
-                ToolAction(Icons.Outlined.FindReplace, "Localizar e substituir (Ctrl+F)", onClick = { if (c.findVisible) c.closeFind() else c.openFind() }, selected = c.findVisible)
-                ToolAction(Icons.Outlined.SaveAs, "Salvar versão do capítulo", onClick = { c.snapshotCurrent(); c.message = "Versão salva." })
-                ToolAction(Icons.Outlined.CenterFocusStrong, "Modo foco (F11)", onClick = { c.focusMode = true })
+    // Barra flutuante sobre a mesa: os painéis nas pontas e, no meio, as ações de escrita em grupos.
+    // Formatação e inserções ficam em menus ("Estilo", "Inserir"); B e I, as mais usadas, ficam à vista.
+    Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        ToolAction(Icons.AutoMirrored.Outlined.ViewSidebar, "Mostrar/ocultar capítulos", onClick = { c.togglePanel(chapters = true, visible = chaptersVisible) }, selected = chaptersVisible)
+        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+            FloatingPanel {
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    ToolAction(Icons.AutoMirrored.Outlined.Undo, "Desfazer (Ctrl+Z)", onClick = { c.undo(); c.requestEditorFocus() }, enabled = c.canUndo)
+                    ToolAction(Icons.AutoMirrored.Outlined.Redo, "Refazer (Ctrl+Y)", onClick = { c.redo(); c.requestEditorFocus() }, enabled = c.canRedo)
+                    ToolbarDivider()
+                    ToolAction(Icons.Outlined.FormatBold, "Negrito (Ctrl+B)", onClick = { c.toggleMark(MarkKind.Bold) })
+                    ToolAction(Icons.Outlined.FormatItalic, "Itálico (Ctrl+I)", onClick = { c.toggleMark(MarkKind.Italic) })
+                    StyleMenu(c)
+                    InsertMenu(c, onFootnote = { footnoteDialog = true })
+                    ToolbarDivider()
+                    MeasuresMenu(c)
+                    ToolAction(Icons.Outlined.FindReplace, "Localizar e substituir (Ctrl+F)", onClick = { if (c.findVisible) c.closeFind() else c.openFind() }, selected = c.findVisible)
+                    ToolAction(Icons.Outlined.SaveAs, "Salvar versão do capítulo", onClick = { c.snapshotCurrent(); c.message = "Versão salva." })
+                    ToolAction(Icons.Outlined.CenterFocusStrong, "Modo foco (F11)", onClick = { c.focusMode = true })
+                }
             }
-            ToolAction(Icons.AutoMirrored.Outlined.ViewSidebar, "Mostrar/ocultar inspetor", onClick = { c.togglePanel(chapters = false, visible = inspectorVisible) }, selected = inspectorVisible)
         }
+        ToolAction(Icons.AutoMirrored.Outlined.ViewSidebar, "Mostrar/ocultar inspetor", onClick = { c.togglePanel(chapters = false, visible = inspectorVisible) }, selected = inspectorVisible)
     }
-    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
     if (footnoteDialog) FootnoteDialog(onDismiss = { footnoteDialog = false; c.requestEditorFocus() }) { text ->
         footnoteDialog = false
         c.addFootnote(text)
+    }
+}
+
+/** Item de menu de formatação: ícone (ou glifo), nome e atalho; devolve o foco ao texto. */
+@Composable
+private fun FormatItem(label: String, icon: ImageVector? = null, glyph: String? = null, hint: String? = null, onClick: () -> Unit) {
+    DropdownMenuItem(
+        text = { Text(label) },
+        leadingIcon = {
+            Box(Modifier.size(22.dp), contentAlignment = Alignment.Center) {
+                if (icon != null) Icon(icon, null, Modifier.size(18.dp))
+                else Text(glyph.orEmpty(), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+            }
+        },
+        trailingIcon = hint?.let { { Text(it, style = MaterialTheme.typography.labelSmall, color = LocalPalette.current.muted) } },
+        onClick = onClick,
+        modifier = Modifier.focusProperties { canFocus = false },
+    )
+}
+
+/** Barra do menu: rótulo com seta, sem tirar o foco do texto. */
+@Composable
+private fun MenuTrigger(label: String, tooltip: String, open: Boolean, onClick: () -> Unit) {
+    WithTooltip(tooltip) {
+        Row(
+            Modifier.height(36.dp).clip(Radius.control)
+                .background(if (open) LocalPalette.current.accentSoft else Color.Transparent)
+                .focusProperties { canFocus = false }.clickable(onClick = onClick).padding(start = 10.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(Icons.Outlined.KeyboardArrowDown, null, Modifier.size(18.dp), tint = LocalPalette.current.muted)
+        }
+    }
+}
+
+@Composable
+private fun StyleMenu(c: EscribaController) {
+    var open by remember { mutableStateOf(false) }
+    fun run(action: () -> Unit) { open = false; action(); c.requestEditorFocus() }
+    Box {
+        MenuTrigger("Estilo", "Estilos de texto e de parágrafo", open) { open = true }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false; c.requestEditorFocus() }) {
+            Overline("Texto", Modifier.padding(start = 14.dp, top = 6.dp, bottom = 2.dp))
+            FormatItem("Versalete", glyph = "Aa") { run { c.toggleMark(MarkKind.SmallCaps) } }
+            FormatItem("Sobrescrito", Icons.Outlined.Superscript) { run { c.toggleMark(MarkKind.Superscript) } }
+            FormatItem("Subscrito", Icons.Outlined.Subscript) { run { c.toggleMark(MarkKind.Subscript) } }
+            FormatItem("Aspas", glyph = "“ ”") { run { c.wrapQuotes() } }
+            HorizontalDivider(Modifier.padding(vertical = 4.dp), color = LocalPalette.current.hairline)
+            Overline("Parágrafo", Modifier.padding(start = 14.dp, top = 6.dp, bottom = 2.dp))
+            FormatItem("Título", glyph = "H1") { run { c.toggleBlockStyle(BlockKind.Heading1) } }
+            FormatItem("Subtítulo", glyph = "H2") { run { c.toggleBlockStyle(BlockKind.Heading2) } }
+            FormatItem("Chamada (texto pequeno acima do título)", glyph = "H3") { run { c.toggleBlockStyle(BlockKind.Heading3) } }
+            FormatItem("Lista", Icons.AutoMirrored.Outlined.FormatListBulleted) { run { c.toggleBlockStyle(BlockKind.ListItem) } }
+            FormatItem("Citação em bloco", Icons.Outlined.FormatQuote) { run { c.toggleBlockStyle(BlockKind.Quote) } }
+            FormatItem("Centralizar parágrafo", Icons.Outlined.FormatAlignCenter) { run { c.toggleCentered() } }
+            HorizontalDivider(Modifier.padding(vertical = 4.dp), color = LocalPalette.current.hairline)
+            FormatItem("Limpar formatação", Icons.Outlined.FormatClear) { run { c.clearFormat() } }
+        }
+    }
+}
+
+@Composable
+private fun InsertMenu(c: EscribaController, onFootnote: () -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    fun run(action: () -> Unit) { open = false; action(); c.requestEditorFocus() }
+    Box {
+        MenuTrigger("Inserir", "Travessão, quebra de cena, imagem e nota", open) { open = true }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false; c.requestEditorFocus() }) {
+            FormatItem("Travessão de diálogo", glyph = "—", hint = "--") { run { c.insertText("— ") } }
+            FormatItem("Quebra de cena", glyph = "⁂") { run { c.insertSceneBreak() } }
+            FormatItem("Imagem", Icons.Outlined.Image) { run { c.insertImage() } }
+            FormatItem("Nota de rodapé", glyph = "¹") { open = false; onFootnote() }
+        }
     }
 }
 
@@ -423,7 +491,7 @@ private fun MeasuresMenu(c: EscribaController) {
     val s = c.settings
     var open by remember { mutableStateOf(false) }
     Box {
-        ToolAction(Icons.Outlined.TextFields, "Medidas e parágrafo", onClick = { open = true }, selected = open)
+        ToolAction(Icons.Outlined.TextFields, "Medidas e parágrafo (Aa)", onClick = { open = true }, selected = open)
         DropdownMenu(expanded = open, onDismissRequest = { open = false; c.requestEditorFocus() }) {
             StepperItem("Fonte", "${s.editorFontSize}",
                 onMinus = { c.updateSettings { it.copy(editorFontSize = (it.editorFontSize - 1).coerceAtLeast(13)) } },
@@ -446,21 +514,18 @@ private fun MeasuresMenu(c: EscribaController) {
                     onMinus = { c.updateSettings { it.copy(indentSize = (it.indentSize - 0.4f).coerceAtLeast(0.4f)) } },
                     onPlus = { c.updateSettings { it.copy(indentSize = (it.indentSize + 0.4f).coerceAtMost(4f)) } })
             }
-            Text("ALINHAMENTO", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 12.dp, top = 8.dp))
-            Row(Modifier.padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                EditorAlign.entries.forEach { a ->
-                    FilterChip(s.textAlign == a, { c.updateSettings { it.copy(textAlign = a) } }, label = { Text(a.label, style = MaterialTheme.typography.labelSmall) })
-                }
-            }
-            Text("ESPAÇO ENTRE PARÁGRAFOS", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 12.dp, top = 8.dp))
-            Row(Modifier.padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                ParagraphSpacing.entries.forEach { preset ->
-                    FilterChip(
-                        s.paragraphSpacing == preset.em, { c.updateSettings { it.copy(paragraphSpacing = preset.em) } },
-                        label = { Text(preset.label, style = MaterialTheme.typography.labelSmall) },
-                    )
-                }
-            }
+            Overline("Alinhamento", Modifier.padding(start = 14.dp, top = 10.dp, bottom = 6.dp))
+            SegmentedControl(
+                EditorAlign.entries.map { it.label }, EditorAlign.entries.indexOf(s.textAlign),
+                { i -> c.updateSettings { it.copy(textAlign = EditorAlign.entries[i]) } },
+                Modifier.padding(horizontal = 12.dp), dense = true,
+            )
+            Overline("Espaço entre parágrafos", Modifier.padding(start = 14.dp, top = 12.dp, bottom = 6.dp))
+            SegmentedControl(
+                ParagraphSpacing.entries.map { it.label }, ParagraphSpacing.entries.indexOfFirst { it.em == s.paragraphSpacing },
+                { i -> c.updateSettings { it.copy(paragraphSpacing = ParagraphSpacing.entries[i].em) } },
+                Modifier.padding(horizontal = 12.dp), dense = true,
+            )
             StepperItem("Ajuste fino", "${(s.paragraphSpacing * 10).toInt() / 10f}",
                 onMinus = { c.updateSettings { it.copy(paragraphSpacing = (((it.paragraphSpacing - 0.1f) * 10).roundToInt() / 10f).coerceAtLeast(0f)) } },
                 onPlus = { c.updateSettings { it.copy(paragraphSpacing = (((it.paragraphSpacing + 0.1f) * 10).roundToInt() / 10f).coerceAtMost(2f)) } })
@@ -489,11 +554,22 @@ private fun MeasuresMenu(c: EscribaController) {
 
 @Composable
 private fun StepperItem(label: String, value: String, onMinus: () -> Unit, onPlus: () -> Unit) {
-    Row(Modifier.width(280.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.width(300.dp).padding(horizontal = 14.dp, vertical = 1.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-        IconAction(Icons.Outlined.Remove, "Diminuir $label", onClick = onMinus)
-        Text(value, style = MaterialTheme.typography.labelLarge, modifier = Modifier.width(40.dp), textAlign = TextAlign.Center)
-        IconAction(Icons.Outlined.Add, "Aumentar $label", onClick = onPlus)
+        Stepper(label, value, onMinus, onPlus)
+    }
+}
+
+/** − valor +, numa trilha suave (o mesmo controle do menu Aa e das Preferências). */
+@Composable
+fun Stepper(label: String, value: String, onMinus: () -> Unit, onPlus: () -> Unit) {
+    Row(
+        Modifier.clip(Radius.control).background(MaterialTheme.colorScheme.surfaceContainer),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconAction(Icons.Outlined.Remove, "Diminuir $label", onClick = onMinus, size = 30.dp)
+        Text(value, style = MaterialTheme.typography.labelLarge, modifier = Modifier.width(44.dp), textAlign = TextAlign.Center)
+        IconAction(Icons.Outlined.Add, "Aumentar $label", onClick = onPlus, size = 30.dp)
     }
 }
 
@@ -502,7 +578,7 @@ private fun StepperItem(label: String, value: String, onMinus: () -> Unit, onPlu
 private fun GlyphAction(glyph: String, tooltip: String, size: Int = 40, onClick: () -> Unit) {
     WithTooltip(tooltip) {
         Box(
-            Modifier.size(size.dp).clip(CircleShape).focusProperties { canFocus = false }.clickable(onClick = onClick),
+            Modifier.size(size.dp).clip(Radius.control).focusProperties { canFocus = false }.clickable(onClick = onClick),
             contentAlignment = Alignment.Center,
         ) {
             Text(
@@ -520,7 +596,7 @@ private fun ToolAction(icon: ImageVector, tooltip: String, onClick: () -> Unit, 
 
 @Composable
 private fun ToolbarDivider() {
-    Box(Modifier.padding(horizontal = 6.dp).width(1.dp).height(22.dp).background(MaterialTheme.colorScheme.outlineVariant))
+    Box(Modifier.padding(horizontal = 6.dp).width(1.dp).height(20.dp).background(LocalPalette.current.hairline))
 }
 
 @Composable
@@ -580,23 +656,24 @@ private fun Page(c: EscribaController, chapter: ChapterMeta) {
     // A barra de rolagem fica na borda da mesa (não da folha) e dá para arrastá-la para andar pelo capítulo.
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
     Column(
-        Modifier.fillMaxHeight().then(deep.modifier()).verticalScroll(scroll).padding(top = 24.dp).widthIn(max = s.editorWidth.dp)
-            .shadow(10.dp, RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
-            .background(palette.paper, RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
+        Modifier.fillMaxHeight().then(deep.modifier()).verticalScroll(scroll).padding(top = 6.dp).widthIn(max = s.editorWidth.dp)
+            .shadow(18.dp, RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp), ambientColor = Color.Black.copy(alpha = 0.18f), spotColor = Color.Black.copy(alpha = 0.14f))
+            .background(palette.paper, RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
             // Clique na folha fora do texto (margens, abaixo do fim) leva o cursor para o fim do capítulo.
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { c.focusEditorAtEnd() }
-            .padding(horizontal = 64.dp)
-            .padding(top = 56.dp, bottom = 160.dp),
+            .padding(horizontal = 72.dp)
+            .padding(top = 64.dp, bottom = 160.dp),
     ) {
         val number = c.chapterNumbers[chapter.id]
         Text(
             if (number != null) "CAPÍTULO $number" else chapter.kind.label.uppercase(),
             style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
             letterSpacing = 3.sp,
             color = palette.accent,
             modifier = Modifier.align(Alignment.CenterHorizontally),
         )
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(12.dp))
         ChapterTitleField(c, chapter)
         Ornament(palette.accent, Modifier.align(Alignment.CenterHorizontally).padding(vertical = 22.dp))
         ManuscriptEditor(c, deep, s, fonts.book, palette)
@@ -628,7 +705,7 @@ private fun ChapterTitleField(c: EscribaController, chapter: ChapterMeta) {
         value = value,
         onValueChange = { value = it.copy(text = it.text.replace("\n", "")) },
         singleLine = true,
-        textStyle = MaterialTheme.typography.headlineMedium.copy(color = palette.ink, textAlign = TextAlign.Center),
+        textStyle = MaterialTheme.typography.displaySmall.copy(color = palette.ink, textAlign = TextAlign.Center),
         cursorBrush = SolidColor(palette.accent),
         modifier = Modifier.fillMaxWidth().focusRequester(focus)
             .onFocusChanged { if (focused && !it.isFocused) commit(); focused = it.isFocused }
@@ -778,16 +855,16 @@ private fun ManuscriptEditor(c: EscribaController, deep: DeepClicks, s: AppSetti
 @Composable
 private fun SelectionBar(c: EscribaController, onFootnote: () -> Unit) {
     var universeMenu by remember { mutableStateOf(false) }
-    Surface(shape = RoundedCornerShape(12.dp), shadowElevation = 6.dp, tonalElevation = 2.dp) {
-        Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+    FloatingPanel {
+        Row(Modifier.padding(horizontal = 4.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
             SmallAction(Icons.Outlined.FormatBold, "Negrito (Ctrl+B)") { c.toggleMark(MarkKind.Bold) }
             SmallAction(Icons.Outlined.FormatItalic, "Itálico (Ctrl+I)") { c.toggleMark(MarkKind.Italic) }
-            GlyphAction("Aa", "Versalete", size = 34) { c.toggleMark(MarkKind.SmallCaps) }
+            GlyphAction("Aa", "Versalete", size = 32) { c.toggleMark(MarkKind.SmallCaps) }
             SmallAction(Icons.Outlined.Superscript, "Sobrescrito") { c.toggleMark(MarkKind.Superscript) }
             SmallAction(Icons.Outlined.Subscript, "Subscrito") { c.toggleMark(MarkKind.Subscript) }
-            GlyphAction("“ ”", "Aspas", size = 34) { c.wrapQuotes() }
+            GlyphAction("“ ”", "Aspas", size = 32) { c.wrapQuotes() }
             SmallAction(Icons.Outlined.FormatAlignCenter, "Centralizar parágrafo") { c.toggleCentered() }
-            GlyphAction("¹", "Nota de rodapé", size = 34) { onFootnote() }
+            GlyphAction("¹", "Nota de rodapé", size = 32) { onFootnote() }
             Box {
                 SmallAction(Icons.Outlined.PersonAdd, "Criar no Universo") { universeMenu = true }
                 DropdownMenu(expanded = universeMenu, onDismissRequest = { universeMenu = false }) {
@@ -804,8 +881,8 @@ private fun SelectionBar(c: EscribaController, onFootnote: () -> Unit) {
 @Composable
 private fun SmallAction(icon: ImageVector, tooltip: String, onClick: () -> Unit) {
     WithTooltip(tooltip) {
-        Box(Modifier.size(34.dp).clip(CircleShape).focusProperties { canFocus = false }.clickable(onClick = onClick), contentAlignment = Alignment.Center) {
-            Icon(icon, tooltip, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Box(Modifier.size(32.dp).clip(Radius.control).focusProperties { canFocus = false }.clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+            Icon(icon, tooltip, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -813,6 +890,7 @@ private fun SmallAction(icon: ImageVector, tooltip: String, onClick: () -> Unit)
 @Composable
 private fun StatusBar(c: EscribaController) {
     val book = c.book ?: return
+    val palette = LocalPalette.current
     val words = c.currentWords
     val goal = book.manifest.dailyGoal
     val today = c.productivity.today.words
@@ -821,108 +899,174 @@ private fun StatusBar(c: EscribaController) {
     val cursorPage = minOf(pages, 1 + countManuscriptWords(text.substring(0, c.editor.selection.end.coerceIn(0, text.length))) / WORDS_PER_PAGE)
     val notes = c.currentFootnotes.size
     val style = MaterialTheme.typography.labelMedium
-    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    val muted = palette.muted
+    var details by remember { mutableStateOf(false) }
 
     // Cada número fica numa linha só; em janela estreita os números rolam de lado em vez de quebrar letra por letra.
     @Composable
     fun Stat(value: String, color: Color = Color.Unspecified) = Text(value, style = style, color = color, maxLines = 1, softWrap = false)
 
-    Surface(color = MaterialTheme.colorScheme.surface) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp),
+            Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                Modifier.weight(1f).horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(18.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Stat("$words palavras")
-                Stat("${countParagraphs(stripMarkup(text))} parágrafos", muted)
-                Stat("página $cursorPage de $pages", muted)
-                Stat("${readingMinutes(words)} min de leitura", muted)
-                if (notes > 0) Stat("$notes nota(s)", muted)
-                Stat("Livro: ${c.bookWords}", muted)
-                if (goal > 0) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Stat("Hoje $today/$goal", muted)
-                        Spacer(Modifier.width(8.dp))
-                        LinearProgressIndicator(
-                            progress = { (today.toFloat() / goal).coerceIn(0f, 1f) },
-                            modifier = Modifier.width(80.dp).height(4.dp).clip(RoundedCornerShape(2.dp)),
-                            drawStopIndicator = {},
-                        )
+            // As palavras abrem os detalhes (página, leitura, notas e o livro inteiro).
+            Box {
+                Row(Modifier.clip(Radius.control).clickable { details = true }, verticalAlignment = Alignment.CenterVertically) {
+                    Stat("$words palavras", MaterialTheme.colorScheme.onSurface)
+                }
+                DropdownMenu(expanded = details, onDismissRequest = { details = false }) {
+                    Column(Modifier.width(240.dp).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Overline("Este capítulo")
+                        InfoRow("Página", "$cursorPage de $pages")
+                        InfoRow("Leitura", "${readingMinutes(words)} min")
+                        if (notes > 0) InfoRow("Notas de rodapé", "$notes")
+                        Spacer(Modifier.height(4.dp))
+                        Overline("O livro")
+                        InfoRow("Palavras", "${c.bookWords}")
+                        if (book.manifest.bookGoal > 0) InfoRow("Meta do livro", "${book.manifest.bookGoal}")
                     }
                 }
             }
-            // O estado de salvamento fica sempre visível à direita.
-            Spacer(Modifier.width(16.dp))
-            val (label, color) = when (c.saveState) {
-                SaveState.Salvo -> "Salvo" to MaterialTheme.colorScheme.primary
-                SaveState.Pendente -> "Editando…" to muted
-                SaveState.Salvando -> "Salvando…" to muted
+            Stat("${countParagraphs(stripMarkup(text))} parágrafos", muted)
+            if (goal > 0) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Stat("Hoje $today/$goal", muted)
+                    Spacer(Modifier.width(8.dp))
+                    val f = (today.toFloat() / goal).coerceIn(0f, 1f)
+                    Box(Modifier.width(56.dp).height(3.dp).clip(RoundedCornerShape(2.dp)).background(palette.hairline)) {
+                        Box(Modifier.fillMaxWidth(f).fillMaxHeight().background(if (f >= 1f) palette.success else palette.accent))
+                    }
+                }
             }
-            Box(Modifier.size(7.dp).clip(CircleShape).background(color))
-            Spacer(Modifier.width(6.dp))
-            Stat(label, muted)
         }
+        // O estado de salvamento fica sempre visível à direita.
+        Spacer(Modifier.width(16.dp))
+        val (label, color) = when (c.saveState) {
+            SaveState.Salvo -> "Salvo" to palette.success
+            SaveState.Pendente -> "Editando…" to palette.warning
+            SaveState.Salvando -> "Salvando…" to palette.warning
+        }
+        StatusDot(color, 6.dp)
+        Spacer(Modifier.width(6.dp))
+        Stat(label, muted)
     }
 }
 
 // ---------------------------------------------------------------- Localizar
+
+/** Campo de texto compacto (36dp), com fio e foco no acento. */
+@Composable
+fun CompactField(
+    value: TextFieldValue,
+    onValueChange: (TextFieldValue) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+    leading: ImageVector? = null,
+) {
+    val palette = LocalPalette.current
+    var focused by remember { mutableStateOf(false) }
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        singleLine = true,
+        textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+        cursorBrush = SolidColor(palette.accent),
+        modifier = modifier.onFocusChanged { focused = it.isFocused },
+        decorationBox = { inner ->
+            Row(
+                Modifier.height(36.dp).clip(Radius.control).background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                    .border(1.dp, if (focused) palette.accent else palette.hairline, Radius.control)
+                    .padding(horizontal = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (leading != null) {
+                    Icon(leading, null, Modifier.size(16.dp), tint = palette.muted)
+                    Spacer(Modifier.width(8.dp))
+                }
+                Box(Modifier.weight(1f)) {
+                    if (value.text.isEmpty()) Text(placeholder, style = MaterialTheme.typography.bodyMedium, color = palette.muted)
+                    inner()
+                }
+            }
+        },
+    )
+}
+
+@Composable
+private fun OptionToggle(label: String, tooltip: String, on: Boolean, onClick: () -> Unit) {
+    val palette = LocalPalette.current
+    WithTooltip(tooltip) {
+        Box(
+            Modifier.size(32.dp).clip(Radius.control).background(if (on) palette.accentSoft else Color.Transparent).clickable(onClick = onClick)
+                .semantics { contentDescription = tooltip },
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = if (on) palette.accent else palette.muted)
+        }
+    }
+}
 
 @Composable
 private fun FindBar(c: EscribaController) {
     // Ctrl+F leva o cursor para "Localizar" com a busca anterior selecionada, para não digitar no texto do livro.
     val queryFocus = remember { FocusRequester() }
     var query by remember { mutableStateOf(TextFieldValue(c.findQuery)) }
+    var replace by remember { mutableStateOf(TextFieldValue(c.replaceText)) }
+    var replaceMenu by remember { mutableStateOf(false) }
     LaunchedEffect(c.findFocusRequests) {
         query = TextFieldValue(c.findQuery, TextRange(0, c.findQuery.length))
         queryFocus.requestFocus()
     }
-    Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = {
+    Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 8.dp), contentAlignment = Alignment.Center) {
+        FloatingPanel(Modifier.widthIn(max = 920.dp)) {
+            Row(
+                Modifier.padding(horizontal = 8.dp, vertical = 6.dp).horizontalScroll(rememberScrollState()),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                CompactField(
+                    query,
+                    {
                         query = it
                         if (it.text != c.findQuery) { c.findQuery = it.text; c.refreshMatches() }
                     },
-                    placeholder = { Text("Localizar") },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f).focusRequester(queryFocus).onPreviewKeyEvent { e ->
+                    "Localizar",
+                    Modifier.width(230.dp).focusRequester(queryFocus).onPreviewKeyEvent { e ->
                         if (e.type == KeyEventType.KeyDown && e.key == Key.Enter) { c.goToMatch(1); true }
                         else if (e.type == KeyEventType.KeyDown && e.key == Key.Escape) { c.closeFind(); c.requestEditorFocus(); true }
                         else false
                     },
-                    shape = RoundedCornerShape(12.dp),
+                    leading = Icons.Outlined.Search,
                 )
-                OutlinedTextField(
-                    value = c.replaceText,
-                    onValueChange = { c.replaceText = it },
-                    placeholder = { Text("Substituir por") },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp),
-                )
+                OptionToggle("Aa", "Diferenciar maiúsculas", c.findOptions.matchCase) { c.findOptions = c.findOptions.copy(matchCase = !c.findOptions.matchCase); c.refreshMatches() }
+                OptionToggle("ab", "Palavra inteira", c.findOptions.wholeWord) { c.findOptions = c.findOptions.copy(wholeWord = !c.findOptions.wholeWord); c.refreshMatches() }
+                OptionToggle(".*", "Expressão regular", c.findOptions.regex) { c.findOptions = c.findOptions.copy(regex = !c.findOptions.regex); c.refreshMatches() }
                 Text(
                     if (c.matches.isEmpty()) "0 de 0" else "${c.currentMatch + 1} de ${c.matches.size}",
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MaterialTheme.typography.labelMedium, color = LocalPalette.current.muted,
+                    modifier = Modifier.padding(horizontal = 6.dp),
                 )
-                IconAction(Icons.Outlined.KeyboardArrowUp, "Anterior", onClick = { c.goToMatch(-1) })
-                IconAction(Icons.Outlined.KeyboardArrowDown, "Próxima (Enter)", onClick = { c.goToMatch(1) })
-                IconAction(Icons.Outlined.Close, "Fechar (Esc)", onClick = { c.closeFind(); c.requestEditorFocus() })
-            }
-            Row(Modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                FilterChip(c.findOptions.matchCase, { c.findOptions = c.findOptions.copy(matchCase = !c.findOptions.matchCase); c.refreshMatches() }, label = { Text("Aa") })
-                FilterChip(c.findOptions.wholeWord, { c.findOptions = c.findOptions.copy(wholeWord = !c.findOptions.wholeWord); c.refreshMatches() }, label = { Text("Palavra inteira") })
-                FilterChip(c.findOptions.regex, { c.findOptions = c.findOptions.copy(regex = !c.findOptions.regex); c.refreshMatches() }, label = { Text(".* Regex") })
-                Spacer(Modifier.width(8.dp))
+                IconAction(Icons.Outlined.KeyboardArrowUp, "Anterior", onClick = { c.goToMatch(-1) }, size = 32.dp)
+                IconAction(Icons.Outlined.KeyboardArrowDown, "Próxima (Enter)", onClick = { c.goToMatch(1) }, size = 32.dp)
+                Box(Modifier.padding(horizontal = 4.dp).width(1.dp).height(20.dp).background(LocalPalette.current.hairline))
+                CompactField(replace, { replace = it; c.replaceText = it.text }, "Substituir por", Modifier.width(200.dp))
                 TextButton(onClick = { c.replaceCurrent() }, enabled = c.currentMatch >= 0) { Text("Substituir") }
-                TextButton(onClick = { c.replaceAllInChapter() }, enabled = c.matches.isNotEmpty()) { Text("Tudo (capítulo)") }
-                TextButton(onClick = { c.replaceAllInBook() }, enabled = c.findQuery.isNotEmpty()) { Text("Tudo (livro)") }
-                TextButton(onClick = { c.deleteAllInChapter() }, enabled = c.matches.isNotEmpty()) { Text("Apagar todas") }
+                Box {
+                    IconAction(Icons.Outlined.MoreHoriz, "Mais formas de substituir", onClick = { replaceMenu = true }, size = 32.dp)
+                    DropdownMenu(expanded = replaceMenu, onDismissRequest = { replaceMenu = false }) {
+                        DropdownMenuItem(text = { Text("Substituir tudo no capítulo") }, enabled = c.matches.isNotEmpty(), onClick = { replaceMenu = false; c.replaceAllInChapter() })
+                        DropdownMenuItem(text = { Text("Substituir tudo no livro") }, enabled = c.findQuery.isNotEmpty(), onClick = { replaceMenu = false; c.replaceAllInBook() })
+                        HorizontalDivider(color = LocalPalette.current.hairline)
+                        DropdownMenuItem(text = { Text("Apagar todas as ocorrências") }, enabled = c.matches.isNotEmpty(), onClick = { replaceMenu = false; c.deleteAllInChapter() })
+                    }
+                }
+                IconAction(Icons.Outlined.Close, "Fechar (Esc)", onClick = { c.closeFind(); c.requestEditorFocus() }, size = 32.dp)
             }
         }
     }
@@ -932,17 +1076,17 @@ private fun FindBar(c: EscribaController) {
 @Composable
 private fun Ornament(color: Color, modifier: Modifier = Modifier) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.width(36.dp).height(1.dp).background(color.copy(alpha = 0.5f)))
-        Box(Modifier.padding(horizontal = 10.dp).size(6.dp).rotate(45f).background(color.copy(alpha = 0.8f)))
-        Box(Modifier.width(36.dp).height(1.dp).background(color.copy(alpha = 0.5f)))
+        Box(Modifier.width(40.dp).height(1.dp).background(color.copy(alpha = 0.35f)))
+        Box(Modifier.padding(horizontal = 10.dp).size(5.dp).rotate(45f).background(color.copy(alpha = 0.75f)))
+        Box(Modifier.width(40.dp).height(1.dp).background(color.copy(alpha = 0.35f)))
     }
 }
 
 @Composable
 fun Toggle(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { onChange(!checked) }.padding(end = 12.dp)) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clip(Radius.control).clickable { onChange(!checked) }.padding(end = 12.dp)) {
         Checkbox(checked = checked, onCheckedChange = onChange)
-        Text(label, style = MaterialTheme.typography.labelMedium)
+        Text(label, style = MaterialTheme.typography.labelLarge)
     }
 }
 
@@ -952,98 +1096,113 @@ fun Toggle(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
 private fun Inspector(c: EscribaController, modifier: Modifier) {
     val book = c.book ?: return
     val chapter = c.currentChapter ?: return
+    val palette = LocalPalette.current
     val text = c.editor.text
     Column(
-        modifier.background(MaterialTheme.colorScheme.surfaceContainerLow).verticalScroll(rememberScrollState()).padding(20.dp),
+        modifier.background(MaterialTheme.colorScheme.background).verticalScroll(rememberScrollState()).padding(horizontal = 22.dp, vertical = 22.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        InspectorBlock("Status") {
-            ChapterStatus.entries.chunked(2).forEach { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    row.forEach { s ->
-                        FilterChip(
-                            selected = chapter.status == s,
-                            onClick = { c.setChapterStatus(chapter.id, s) },
-                            label = { Text(s.label) },
-                            leadingIcon = { Box(Modifier.size(8.dp).clip(CircleShape).background(statusColor(s))) },
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                }
-            }
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Overline("Status")
+            SegmentedControl(
+                ChapterStatus.entries.map { it.label },
+                chapter.status.ordinal,
+                { c.setChapterStatus(chapter.id, ChapterStatus.entries[it]) },
+                dots = ChapterStatus.entries.map { if (it == chapter.status) statusColor(it) else null },
+                dense = true,
+            )
         }
-        InspectorBlock("Estatísticas") {
+        Hairline()
+        CollapsibleSection("Estatísticas") {
             val words = c.currentWords
             val plain = remember(text) { stripMarkup(text) }
-            InfoRow("Palavras", "$words")
-            InfoRow("Caracteres", "${countCharacters(plain)}")
-            InfoRow("Parágrafos", "${countParagraphs(plain)}")
-            InfoRow("Leitura", "${readingMinutes(words)} min")
+            Row(Modifier.fillMaxWidth()) {
+                MiniStat("$words", "palavras", Modifier.weight(1f))
+                MiniStat("${countCharacters(plain)}", "caracteres", Modifier.weight(1f))
+            }
+            Row(Modifier.fillMaxWidth()) {
+                MiniStat("${countParagraphs(plain)}", "parágrafos", Modifier.weight(1f))
+                MiniStat("${readingMinutes(words)} min", "de leitura", Modifier.weight(1f))
+            }
         }
-        FootnotesBlock(c)
         // Nome e apelidos, palavra inteira, sem diferenciar acentos; as mais citadas primeiro.
         val mentioned = remember(text, book.universe) { c.entriesInCurrentChapter() }
-        InspectorBlock("Aparecem neste capítulo") {
-            if (mentioned.isEmpty()) {
-                Text("Nenhuma ficha do Universo citada.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            mentioned.forEach { (e, count) ->
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { c.openUniverseEntry(e.id) }.padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    EntryAvatar(c, e, 26)
-                    Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(e.name, style = MaterialTheme.typography.bodyMedium)
-                        Text(e.kind.label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (mentioned.isNotEmpty()) {
+            Hairline()
+            CollapsibleSection("Neste capítulo") {
+                mentioned.forEach { (e, count) ->
+                    HoverRow(false, onClick = { c.openUniverseEntry(e.id) }, Modifier.fillMaxWidth()) {
+                        Spacer(Modifier.width(4.dp))
+                        EntryAvatar(c, e, 26)
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f).padding(vertical = 5.dp)) {
+                            Text(e.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(e.kind.label, style = MaterialTheme.typography.labelSmall, color = palette.muted)
+                        }
+                        Text("${count}×", style = MaterialTheme.typography.labelMedium, color = palette.muted, modifier = Modifier.padding(end = 6.dp))
                     }
-                    Text("${count}×", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
+        Hairline()
         ContradictionsBlock(c)
         val beats = book.outline.beats.filter { it.chapterId == chapter.id }
         if (beats.isNotEmpty()) {
-            InspectorBlock("Cenas do roteiro") {
+            Hairline()
+            CollapsibleSection("Cenas do roteiro") {
                 beats.forEach { b ->
-                    Text("• ${b.title.ifBlank { "Cena sem título" }}", style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.clickable { c.goTo(Section.Enredo) })
+                    Row(Modifier.fillMaxWidth().clip(Radius.control).clickable { c.goTo(Section.Enredo) }.padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                        StatusDot(statusTone(b.status.ordinal), 6.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text(b.title.ifBlank { "Cena sem título" }, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
                 }
             }
         }
+        FootnotesBlock(c)
+        Hairline()
         NoteBlocksBlock(c)
-        InspectorBlock("Versões recentes") {
+        Hairline()
+        CollapsibleSection("Versões recentes", initiallyOpen = c.snapshots.isNotEmpty()) {
             if (c.snapshots.isEmpty()) {
-                Text("Nenhuma versão salva ainda.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Nenhuma versão salva ainda.", style = MaterialTheme.typography.bodySmall, color = palette.muted)
             }
             c.snapshots.take(3).forEach { s ->
                 Column(Modifier.padding(vertical = 2.dp)) {
                     Text(s.label, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
-                    Text("${formatDateTime(s.createdAt)} · ${s.words} palavras", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("${relativeTime(s.createdAt)} · ${s.words} palavras", style = MaterialTheme.typography.labelSmall, color = palette.muted)
                 }
             }
-            TextButton(onClick = { c.goTo(Section.Versoes) }) { Text("Ver todas e comparar") }
+            TextButton(onClick = { c.goTo(Section.Versoes) }, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 0.dp)) { Text("Ver todas e comparar") }
         }
     }
 }
 
-/** Notas de rodapé do capítulo, na ordem do texto, com o texto editável. */
+@Composable
+private fun MiniStat(value: String, label: String, modifier: Modifier = Modifier) {
+    Column(modifier.padding(vertical = 2.dp)) {
+        Text(value, style = MaterialTheme.typography.titleLarge)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = LocalPalette.current.muted)
+    }
+}
+
+/** Notas de rodapé do capítulo, na ordem do texto, com o texto editável. Só aparece quando há notas. */
 @Composable
 private fun FootnotesBlock(c: EscribaController) {
     val notes = c.currentFootnotes
-    InspectorBlock("Notas de rodapé") {
-        if (notes.isEmpty()) {
-            Text("Selecione um trecho e use ¹ na barra para criar uma nota.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
+    if (notes.isEmpty()) return
+    Hairline()
+    CollapsibleSection("Notas de rodapé") {
         notes.forEachIndexed { i, (id, noteText) ->
             Row(verticalAlignment = Alignment.Top) {
-                Text("${i + 1}", style = MaterialTheme.typography.labelLarge, color = LocalPalette.current.accent, modifier = Modifier.padding(top = 12.dp, end = 8.dp))
-                OutlinedTextField(
+                Text("${i + 1}", style = MaterialTheme.typography.titleLarge, color = LocalPalette.current.accent, modifier = Modifier.padding(top = 4.dp, end = 10.dp))
+                BasicTextField(
                     value = noteText, onValueChange = { c.updateFootnote(id, it) },
-                    textStyle = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f),
+                    textStyle = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurface),
+                    cursorBrush = SolidColor(LocalPalette.current.accent),
+                    modifier = Modifier.weight(1f).padding(top = 8.dp),
                 )
-                IconAction(Icons.Outlined.DeleteOutline, "Tirar a nota do texto", onClick = { c.removeFootnote(id) })
+                IconAction(Icons.Outlined.DeleteOutline, "Tirar a nota do texto", onClick = { c.removeFootnote(id) }, size = 30.dp)
             }
         }
     }
@@ -1053,33 +1212,41 @@ private fun FootnotesBlock(c: EscribaController) {
 @Composable
 private fun NoteBlocksBlock(c: EscribaController) {
     val blocks = c.book?.notes?.blocks.orEmpty()
+    val palette = LocalPalette.current
     var confirmDelete by remember { mutableStateOf<NoteBlock?>(null) }
-    InspectorBlock("Blocos de notas") {
+    CollapsibleSection("Blocos de notas", initiallyOpen = blocks.isNotEmpty()) {
         blocks.forEach { block ->
             Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceContainer).padding(8.dp),
+                Modifier.fillMaxWidth().clip(Radius.surface).background(palette.paper)
+                    .border(1.dp, palette.hairline, Radius.surface).padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     BasicTextField(
                         value = block.title, onValueChange = { c.updateNoteBlock(block.copy(title = it)) }, singleLine = true,
                         textStyle = MaterialTheme.typography.labelLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                        cursorBrush = SolidColor(palette.accent),
                         modifier = Modifier.weight(1f),
-                        decorationBox = { inner -> if (block.title.isEmpty()) Text("Nome do bloco", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.outline); inner() },
+                        decorationBox = { inner -> if (block.title.isEmpty()) Text("Nome do bloco", style = MaterialTheme.typography.labelLarge, color = palette.muted); inner() },
                     )
                     IconAction(Icons.Outlined.DeleteOutline, "Apagar bloco", onClick = {
                         if (block.title.isBlank() && block.body.isBlank()) c.removeNoteBlock(block.id) else confirmDelete = block
-                    })
+                    }, size = 28.dp)
                 }
                 BasicTextField(
                     value = block.body, onValueChange = { c.updateNoteBlock(block.copy(body = it)) },
                     textStyle = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurface),
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                    decorationBox = { inner -> if (block.body.isEmpty()) Text("Escreva aqui…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline); inner() },
+                    cursorBrush = SolidColor(palette.accent),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp),
+                    decorationBox = { inner -> if (block.body.isEmpty()) Text("Escreva aqui…", style = MaterialTheme.typography.bodySmall, color = palette.muted); inner() },
                 )
             }
         }
-        TextButton(onClick = { c.addNoteBlock() }) { Text("+ Novo bloco") }
+        TextButton(onClick = { c.addNoteBlock() }, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 0.dp)) {
+            Icon(Icons.Outlined.Add, null, Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("Novo bloco")
+        }
     }
     confirmDelete?.let { block ->
         AlertDialog(
@@ -1093,17 +1260,9 @@ private fun NoteBlocksBlock(c: EscribaController) {
 }
 
 @Composable
-private fun InspectorBlock(title: String, content: @Composable () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(title.uppercase(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
-        content()
-    }
-}
-
-@Composable
 fun InfoRow(label: String, value: String) {
     Row(Modifier.fillMaxWidth()) {
-        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+        Text(label, style = MaterialTheme.typography.bodySmall, color = LocalPalette.current.muted, modifier = Modifier.weight(1f))
         Text(value, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
     }
 }

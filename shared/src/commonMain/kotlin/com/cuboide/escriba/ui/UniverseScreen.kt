@@ -58,6 +58,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -151,100 +152,119 @@ fun UniverseScreen(c: EscribaController) {
     val selected = all.firstOrNull { it.id == selectedId && it.kind == kind } ?: entries.firstOrNull()
     val trash = c.entryTrash
 
-    SectionPage(
-        title = acervo?.meta?.name ?: "Universo",
-        subtitle = when {
-            acervo?.meta?.saga == true -> "Universo da saga, no Acervo · ${all.size} ficha(s) · muda em todos os ${acervo.meta.bookPaths.size} livros"
-            acervo != null -> "Universo do Acervo · ${all.size} ficha(s), fora de qualquer livro"
-            book.manifest.sagaId != null -> "${all.size} ficha(s) · saga “${book.manifest.sagaName}”: mudar uma ficha muda nos outros livros"
-            else -> "${all.size} ficha(s): personagens, locais, grupos e lore do livro"
-        },
-        actions = {
-            if (acervo != null) {
-                TextButton(onClick = { c.showAcervo() }) { Text("← Universos do Acervo") }
-            } else {
-                TextButton(onClick = { c.showAcervo() }) {
-                    Icon(Icons.Outlined.Inventory2, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Acervo")
+    val palette = LocalPalette.current
+    val inFichas = c.universeTool == UniverseTool.Fichas || acervo != null
+    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        PageHeader(
+            title = acervo?.meta?.name ?: "Universo",
+            subtitle = when {
+                acervo?.meta?.saga == true -> "Universo da saga, no Acervo · ${all.size} ficha(s) · muda em todos os ${acervo.meta.bookPaths.size} livros"
+                acervo != null -> "Universo do Acervo · ${all.size} ficha(s), fora de qualquer livro"
+                book.manifest.sagaId != null -> "${all.size} ficha(s) · saga “${book.manifest.sagaName}”: mudar uma ficha muda nos outros livros"
+                else -> "${all.size} ficha(s) do livro"
+            },
+            actions = {
+                if (acervo != null) {
+                    TextButton(onClick = { c.showAcervo() }) { Text("← Universos do Acervo") }
+                } else {
+                    TextButton(onClick = { c.showAcervo() }) {
+                        Icon(Icons.Outlined.Inventory2, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Acervo")
+                    }
+                    // Num livro de saga, a saga fica à vista: é o estado do universo, não só uma ação.
+                    if (book.manifest.sagaId != null) {
+                        TextButton(onClick = { c.refreshLibrary(); showUnify = true }) {
+                            Icon(Icons.Outlined.Link, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Saga")
+                        }
+                    }
                 }
-                TextButton(onClick = { c.refreshLibrary(); showUnify = true }) {
-                    Icon(Icons.Outlined.Link, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(if (book.manifest.sagaId != null) "Saga" else "Unificar livros")
-                }
-            }
-            TextButton(onClick = { c.refreshLibrary(); showBring = true }) { Text("Trazer fichas") }
-            TextButton(onClick = { showTrash = true }) {
-                Icon(Icons.Outlined.DeleteOutline, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Lixeira (${trash.size})")
-            }
-            if (c.universeTool == UniverseTool.Fichas || acervo != null) {
-                Button(onClick = { filter = ""; c.universeTool = UniverseTool.Fichas; selectedId = c.createEntry(kind).id }) { Text("Nova ficha de ${kind.label.lowercase()}") }
-            }
-        },
-    ) {
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            EntryKind.entries.forEach { k ->
-                FilterChip(
-                    selected = (c.universeTool == UniverseTool.Fichas || acervo != null) && kind == k,
-                    onClick = { kind = k; c.universeTool = UniverseTool.Fichas },
-                    leadingIcon = { Icon(k.icon, null, Modifier.size(18.dp)) },
-                    label = { Text("${k.plural}  ${all.count { it.kind == k }}") },
-                )
-            }
-            // Calendário e idiomas são do livro; os universos do Acervo só têm fichas.
-            if (acervo == null) {
-                FilterChip(
-                    selected = c.universeTool == UniverseTool.Calendario,
-                    onClick = { c.universeTool = UniverseTool.Calendario },
-                    leadingIcon = { Icon(Icons.Outlined.CalendarMonth, null, Modifier.size(18.dp)) },
-                    label = { Text("Calendário") },
-                )
-                FilterChip(
-                    selected = c.universeTool == UniverseTool.Idiomas,
-                    onClick = { c.universeTool = UniverseTool.Idiomas },
-                    leadingIcon = { Icon(Icons.Outlined.Translate, null, Modifier.size(18.dp)) },
-                    label = { Text("Idiomas") },
-                )
-            }
-        }
-        Spacer(Modifier.height(16.dp))
-        if (c.universeTool == UniverseTool.Calendario && acervo == null) {
-            CalendarScreen(c)
-            return@SectionPage
-        }
-        if (c.universeTool == UniverseTool.Idiomas && acervo == null) {
-            LanguageScreen(c)
-            return@SectionPage
-        }
-        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-            Column(Modifier.width(300.dp).fillMaxHeight()) {
-                OutlinedTextField(
-                    value = filter, onValueChange = { filter = it }, singleLine = true,
-                    leadingIcon = { Icon(Icons.Outlined.Search, null) },
-                    placeholder = { Text("Buscar nome, apelido, texto…", maxLines = 1) },
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(12.dp))
-                LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    items(entries, key = { it.id }) { e -> EntryRow(c, e, e.id == selected?.id) { selectedId = e.id } }
-                }
-                if (entries.isEmpty()) {
-                    Text(
-                        if (filter.isBlank()) "Nenhuma ficha de ${kind.plural.lowercase()} ainda." else "Nada encontrado para “$filter”.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                MoreMenu("Mais ações do universo") { close ->
+                    if (acervo == null && book.manifest.sagaId == null) {
+                        DropdownMenuItem(
+                            text = { Text("Unificar livros") }, leadingIcon = { Icon(Icons.Outlined.Link, null) },
+                            onClick = { close(); c.refreshLibrary(); showUnify = true },
+                        )
+                    }
+                    DropdownMenuItem(
+                        text = { Text("Trazer fichas") }, leadingIcon = { Icon(Icons.Outlined.Inventory2, null) },
+                        onClick = { close(); c.refreshLibrary(); showBring = true },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Lixeira (${trash.size})") }, leadingIcon = { Icon(Icons.Outlined.DeleteOutline, null) },
+                        onClick = { close(); showTrash = true },
                     )
                 }
+                if (inFichas) {
+                    Spacer(Modifier.width(4.dp))
+                    Button(onClick = { filter = ""; c.universeTool = UniverseTool.Fichas; selectedId = c.createEntry(kind).id }) {
+                        Icon(Icons.Outlined.Add, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Nova ficha de ${kind.label.lowercase()}")
+                    }
+                }
+            },
+        )
+        // Abas: os tipos de ficha e, depois de um fio, as ferramentas do mundo (calendário e idiomas são do livro).
+        val tabs = EntryKind.entries.map { TabItem(it.plural, all.count { e -> e.kind == it }, it.icon) } +
+            if (acervo == null) listOf(TabItem("Calendário", icon = Icons.Outlined.CalendarMonth), TabItem("Idiomas", icon = Icons.Outlined.Translate)) else emptyList()
+        val selectedTab = when {
+            inFichas -> kind.ordinal
+            c.universeTool == UniverseTool.Calendario -> EntryKind.entries.size
+            else -> EntryKind.entries.size + 1
+        }
+        QuietTabs(
+            tabs, selectedTab,
+            onSelect = { i ->
+                when {
+                    i < EntryKind.entries.size -> { kind = EntryKind.entries[i]; c.universeTool = UniverseTool.Fichas }
+                    i == EntryKind.entries.size -> c.universeTool = UniverseTool.Calendario
+                    else -> c.universeTool = UniverseTool.Idiomas
+                }
+            },
+            modifier = Modifier.padding(horizontal = Space.page),
+            groupBreaks = if (acervo == null) setOf(EntryKind.entries.size) else emptySet(),
+        )
+        Column(Modifier.fillMaxSize().padding(horizontal = Space.page).padding(top = 20.dp, bottom = 20.dp)) {
+            if (c.universeTool == UniverseTool.Calendario && acervo == null) {
+                CalendarScreen(c)
+                return@Column
             }
-            Box(Modifier.weight(1f).fillMaxHeight()) {
-                if (selected == null) {
-                    EmptyState(Icons.Outlined.Public, "Selecione uma ficha", "Escolha alguém ou algum lugar à esquerda, ou crie uma nova ficha.")
-                } else {
-                    EntrySheet(c, selected, onDeleted = { selectedId = null })
+            if (c.universeTool == UniverseTool.Idiomas && acervo == null) {
+                LanguageScreen(c)
+                return@Column
+            }
+            Row(Modifier.fillMaxSize()) {
+                Column(Modifier.width(280.dp).fillMaxHeight().padding(end = 20.dp)) {
+                    OutlinedTextField(
+                        value = filter, onValueChange = { filter = it }, singleLine = true,
+                        leadingIcon = { Icon(Icons.Outlined.Search, null, Modifier.size(18.dp)) },
+                        placeholder = { Text("Buscar nome, apelido, texto…", maxLines = 1) },
+                        textStyle = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        items(entries, key = { it.id }) { e -> EntryRow(c, e, e.id == selected?.id) { selectedId = e.id } }
+                    }
+                    if (entries.isEmpty()) {
+                        Text(
+                            if (filter.isBlank()) "Nenhuma ficha de ${kind.plural.lowercase()} ainda." else "Nada encontrado para “$filter”.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = palette.muted,
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                        )
+                    }
+                }
+                VHairline()
+                Box(Modifier.weight(1f).fillMaxHeight()) {
+                    if (selected == null) {
+                        EmptyState(kind.icon, "Nenhuma ficha aberta", "Escolha alguém ou algum lugar à esquerda, ou crie uma nova ficha.")
+                    } else {
+                        EntrySheet(c, selected, onDeleted = { selectedId = null })
+                    }
                 }
             }
         }
@@ -256,19 +276,15 @@ fun UniverseScreen(c: EscribaController) {
 
 @Composable
 private fun EntryRow(c: EscribaController, entry: UniverseEntry, selected: Boolean, onClick: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-            .background(if (selected) MaterialTheme.colorScheme.surfaceContainerHighest else Color.Transparent)
-            .clickable(onClick = onClick).padding(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        EntryAvatar(c, entry, 40)
+    HoverRow(selected, onClick, Modifier.fillMaxWidth()) {
+        Spacer(Modifier.width(10.dp))
+        EntryAvatar(c, entry, 34)
         Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(entry.name.ifBlank { "(sem nome)" }, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+        Column(Modifier.weight(1f).padding(vertical = 9.dp).padding(end = 10.dp)) {
+            Text(entry.name.ifBlank { "(sem nome)" }, style = MaterialTheme.typography.bodyMedium, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val line = entry.digest().ifBlank { entry.tags.joinToString(" · ") { "#$it" } }
             if (line.isNotEmpty()) {
-                Text(line, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(line, style = MaterialTheme.typography.bodySmall, color = LocalPalette.current.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }
@@ -309,12 +325,12 @@ private fun EntrySheet(c: EscribaController, entry: UniverseEntry, onDeleted: ()
     val nameFocus = remember { FocusRequester() }
     LaunchedEffect(entry.id) { if (entry.name.isBlank()) nameFocus.requestFocus() }
 
-    Surface(Modifier.fillMaxSize(), shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+    Box(Modifier.fillMaxSize()) {
         BoxWithConstraints {
             val narrow = maxWidth < 760.dp
-            Column(Modifier.verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(start = 32.dp, end = 8.dp, top = 4.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 SiblingStrip(c, entry)
-                Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(32.dp)) {
                     // Coluna da esquerda: retrato, galeria, frase, atributos e citações.
                     Column(Modifier.width(if (narrow) 220.dp else 260.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         PortraitPane(c, entry)
@@ -331,17 +347,18 @@ private fun EntrySheet(c: EscribaController, entry: UniverseEntry, onDeleted: ()
                         Row(verticalAlignment = Alignment.Top) {
                             Column(Modifier.weight(1f)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(entry.kind.icon, null, Modifier.size(14.dp), tint = LocalPalette.current.accent)
-                                    Spacer(Modifier.width(4.dp))
-                                    Text(entry.kind.label.uppercase(), style = MaterialTheme.typography.labelSmall, color = LocalPalette.current.accent)
+                                    Icon(entry.kind.icon, null, Modifier.size(13.dp), tint = LocalPalette.current.accent)
+                                    Spacer(Modifier.width(6.dp))
+                                    Overline(entry.kind.label, accent = true)
                                 }
+                                Spacer(Modifier.height(4.dp))
                                 PlainField(
                                     entry.id + ":name", entry.name, schema.titleLabel,
-                                    MaterialTheme.typography.headlineMedium, Modifier.focusRequester(nameFocus),
+                                    MaterialTheme.typography.displaySmall, Modifier.focusRequester(nameFocus),
                                 ) { v -> edit { it.copy(name = v.trim()) } }
                                 PlainField(
                                     entry.id + ":subtitle", entry.subtitle, schema.subtitleLabel,
-                                    MaterialTheme.typography.bodyLarge.copy(fontStyle = FontStyle.Italic),
+                                    MaterialTheme.typography.titleLarge.copy(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Normal),
                                 ) { v -> edit { it.copy(subtitle = v) } }
                             }
                             IconAction(Icons.Outlined.DeleteOutline, "Enviar ficha para a lixeira", onClick = { c.trashEntry(latest()); onDeleted() })
@@ -380,8 +397,8 @@ private fun SiblingStrip(c: EscribaController, entry: UniverseEntry) {
         siblings.forEach { e ->
             val current = e.id == entry.id
             Column(
-                Modifier.width(64.dp).clip(RoundedCornerShape(10.dp))
-                    .background(if (current) MaterialTheme.colorScheme.surfaceContainerHighest else Color.Transparent)
+                Modifier.width(64.dp).clip(Radius.surface)
+                    .background(if (current) LocalPalette.current.navSelected else Color.Transparent)
                     .clickable { c.openUniverseEntry(e.id) }.padding(6.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
@@ -440,9 +457,9 @@ private fun PortraitPane(c: EscribaController, entry: UniverseEntry) {
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Box(
-            Modifier.fillMaxWidth().height(300.dp).clip(RoundedCornerShape(16.dp))
+            Modifier.fillMaxWidth().height(300.dp).clip(Radius.surface)
                 .background(scheme.surfaceContainerHighest)
-                .border(if (framing) 2.dp else 1.dp, if (framing) scheme.primary else scheme.outlineVariant, RoundedCornerShape(16.dp))
+                .border(if (framing) 2.dp else 1.dp, if (framing) scheme.primary else LocalPalette.current.hairline, Radius.surface)
                 .onSizeChanged { box = it }
                 .semantics { contentDescription = if (portrait == null) "Sem retrato" else "Retrato" }
                 .then(
@@ -554,7 +571,7 @@ private fun QuoteField(entry: UniverseEntry, onChange: (String) -> Unit) {
         Box(Modifier.width(3.dp).heightIn(min = 40.dp).background(LocalPalette.current.accent))
         Spacer(Modifier.width(10.dp))
         Column {
-            Text("FRASE MARCANTE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Overline("Frase marcante")
             PlainField(
                 entry.id + ":quote", entry.blockText(EntrySchemas.QUOTE), "Algo que só essa pessoa diria…",
                 MaterialTheme.typography.bodyMedium.copy(fontStyle = FontStyle.Italic), singleLine = false, onChange = onChange,
@@ -568,9 +585,9 @@ private fun QuoteField(entry: UniverseEntry, onChange: (String) -> Unit) {
 @Composable
 private fun AttributesCard(c: EscribaController, entry: UniverseEntry, edit: ((UniverseEntry) -> UniverseEntry) -> Unit) {
     val scheme = MaterialTheme.colorScheme
-    Surface(shape = RoundedCornerShape(14.dp), color = scheme.surface, border = androidx.compose.foundation.BorderStroke(1.dp, scheme.outlineVariant)) {
+    Surface(shape = Radius.surface, color = LocalPalette.current.paper, border = androidx.compose.foundation.BorderStroke(1.dp, LocalPalette.current.hairline)) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("ATRIBUTOS", style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
+            Overline("Atributos")
             entry.schema.attributes.forEach { spec ->
                 val attr = entry.attributes.firstOrNull { it.key == spec.key }
                 AttributeRow(
@@ -607,7 +624,7 @@ private fun AttributeRow(
 ) {
     Column {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(label.uppercase(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Overline(label)
             if (onToggleSeal != null) {
                 // Selo: o Manuscrito confere o texto contra este fato.
                 Icon(
@@ -619,7 +636,7 @@ private fun AttributeRow(
             }
         }
         PlainField(key, value, spec?.placeholder?.ifBlank { "—" } ?: "—", MaterialTheme.typography.bodyMedium, onChange = onChange)
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+        HorizontalDivider(color = LocalPalette.current.hairline)
     }
 }
 
@@ -633,7 +650,7 @@ private fun CustomAttributeRow(attr: EntryAttribute, onChange: (EntryAttribute) 
             TinyAction(Icons.Outlined.Close, "Remover atributo", onRemove)
         }
         PlainField(attr.id + ":value", attr.value, "—", MaterialTheme.typography.bodyMedium) { onChange(attr.copy(value = it)) }
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+        HorizontalDivider(color = LocalPalette.current.hairline)
     }
 }
 
@@ -668,14 +685,14 @@ private fun BlockGrid(entry: UniverseEntry, narrow: Boolean, onOpen: (String) ->
 private fun BlockCard(title: String, text: String, placeholder: String, modifier: Modifier, trailing: @Composable () -> Unit = {}, onOpen: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
     Surface(
-        modifier.heightIn(min = 96.dp).clip(RoundedCornerShape(14.dp)).clickable(onClick = onOpen)
+        modifier.heightIn(min = 96.dp).clip(Radius.surface).clickable(onClick = onOpen)
             .semantics { contentDescription = "Bloco $title" },
-        shape = RoundedCornerShape(14.dp), color = scheme.surface,
-        border = androidx.compose.foundation.BorderStroke(1.dp, scheme.outlineVariant),
+        shape = Radius.surface, color = LocalPalette.current.paper,
+        border = androidx.compose.foundation.BorderStroke(1.dp, LocalPalette.current.hairline),
     ) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(title.uppercase(), style = MaterialTheme.typography.labelSmall, color = LocalPalette.current.accent, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                Overline(title, Modifier.weight(1f), accent = true)
                 trailing()
             }
             val plain = stripMarkup(text).trim()
@@ -727,7 +744,7 @@ private fun TagsField(entry: UniverseEntry, onChange: (List<String>) -> Unit) {
         text,
         { text = it; onChange(it.split(',').map { t -> t.trim().removePrefix("#") }.filter { t -> t.isNotEmpty() }.distinct()) },
         label = { Text("Etiquetas (separadas por vírgula)") }, singleLine = true,
-        modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp),
     )
 }
 
@@ -774,8 +791,8 @@ private fun RichBlockDialog(title: String, subtitle: String, initial: String, on
                     cursorBrush = SolidColor(scheme.primary),
                     visualTransformation = styling,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 220.dp, max = 420.dp)
-                        .clip(RoundedCornerShape(12.dp)).background(scheme.surfaceContainerLowest)
-                        .border(1.dp, scheme.outlineVariant, RoundedCornerShape(12.dp)).padding(14.dp)
+                        .clip(RoundedCornerShape(10.dp)).background(scheme.surfaceContainerLowest)
+                        .border(1.dp, scheme.outlineVariant, RoundedCornerShape(10.dp)).padding(14.dp)
                         .focusRequester(focus),
                 )
                 Spacer(Modifier.height(6.dp))
@@ -795,9 +812,9 @@ private fun MentionsCard(c: EscribaController, entry: UniverseEntry) {
     // Recalcula quando muda o nome, os apelidos ou algum capítulo; os capítulos sem mudança vêm do cache.
     val mentions = remember(entry.name, entry.attributes, book.manifest.chapters) { c.entryMentions(entry) }
     var showAll by remember(entry.id) { mutableStateOf(false) }
-    Surface(shape = RoundedCornerShape(14.dp), color = scheme.surface, border = androidx.compose.foundation.BorderStroke(1.dp, scheme.outlineVariant)) {
+    Surface(shape = Radius.surface, color = LocalPalette.current.paper, border = androidx.compose.foundation.BorderStroke(1.dp, LocalPalette.current.hairline)) {
         Column(Modifier.padding(14.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("NO MANUSCRITO", style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
+            Overline("No manuscrito")
             when {
                 mentions.terms.isEmpty() -> Hint("Dê um nome a esta ficha para procurá-la no manuscrito.")
                 mentions.totalChapters == 0 -> Hint("O livro ainda não tem capítulos.")

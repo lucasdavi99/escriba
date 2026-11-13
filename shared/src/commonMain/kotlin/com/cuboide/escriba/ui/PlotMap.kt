@@ -1,5 +1,13 @@
 package com.cuboide.escriba.ui
 
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material.icons.automirrored.outlined.StickyNote2
+import androidx.compose.material.icons.outlined.AutoAwesomeMosaic
+import androidx.compose.material.icons.outlined.Timeline
+import androidx.compose.material.icons.outlined.Title
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -84,36 +92,51 @@ fun PlotMap(c: EscribaController, header: @Composable () -> Unit, modifier: Modi
 
     Column(modifier.background(MaterialTheme.colorScheme.background)) {
         Row(
-            Modifier.fillMaxWidth().padding(start = 36.dp, end = 20.dp, top = 20.dp, bottom = 8.dp),
+            Modifier.fillMaxWidth().padding(start = Space.page, end = Space.xl, top = 36.dp, bottom = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             header()
             Spacer(Modifier.width(16.dp))
-            Row(
-                Modifier.weight(1f).horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(2.dp, Alignment.End),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TextButton(onClick = { c.map.addCard(view.center()) }) { Text("+ Cartão") }
-                TextButton(onClick = { linkMode = !linkMode }, enabled = board.nodes.size >= 2) {
-                    Text(if (linkMode) "Cancelar ligação" else "+ Ligação")
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+                FloatingPanel {
+                    Row(
+                        Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        var addMenu by remember { mutableStateOf(false) }
+                        Box {
+                            TextButton(onClick = { addMenu = true }) {
+                                Icon(Icons.Outlined.Add, null, Modifier.size(17.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Adicionar")
+                            }
+                            DropdownMenu(expanded = addMenu, onDismissRequest = { addMenu = false }) {
+                                DropdownMenuItem(text = { Text("Cartão") }, leadingIcon = { Icon(Icons.AutoMirrored.Outlined.StickyNote2, null) }, onClick = { addMenu = false; c.map.addCard(view.center()) })
+                                DropdownMenuItem(text = { Text("Imagem") }, leadingIcon = { Icon(Icons.Outlined.Image, null) }, onClick = { addMenu = false; c.map.addImage(view.center()) })
+                                DropdownMenuItem(text = { Text("Texto") }, leadingIcon = { Icon(Icons.Outlined.Title, null) }, onClick = { addMenu = false; c.map.addText(view.center()) })
+                            }
+                        }
+                        TextButton(onClick = { linkMode = !linkMode }, enabled = board.nodes.size >= 2) {
+                            Icon(Icons.Outlined.Timeline, null, Modifier.size(17.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(if (linkMode) "Cancelar ligação" else "Ligar")
+                        }
+                        IconAction(Icons.Outlined.AutoAwesomeMosaic, "Arranjar os cartões", { c.map.arrange(); view.fit(c.map.board?.bounds()) }, enabled = board.nodes.size >= 2)
+                        Box(Modifier.padding(horizontal = 6.dp).width(1.dp).height(20.dp).background(LocalPalette.current.hairline))
+                        IconAction(Icons.AutoMirrored.Outlined.Undo, "Desfazer (Ctrl+Z)", { c.map.undo() }, enabled = c.map.canUndo)
+                        IconAction(Icons.AutoMirrored.Outlined.Redo, "Refazer (Ctrl+Shift+Z)", { c.map.redo() }, enabled = c.map.canRedo)
+                        Box(Modifier.padding(horizontal = 6.dp).width(1.dp).height(20.dp).background(LocalPalette.current.hairline))
+                        IconAction(Icons.Outlined.Remove, "Diminuir zoom", { view.zoomBy(1f / 1.2f) })
+                        Text(
+                            "${(view.zoom * 100).roundToInt()}%",
+                            style = MaterialTheme.typography.labelLarge,
+                            modifier = Modifier.width(48.dp).clip(Radius.control).clickable { view.zoomBy(1f / view.zoom) }.padding(vertical = 6.dp),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        )
+                        IconAction(Icons.Outlined.Add, "Aumentar zoom", { view.zoomBy(1.2f) })
+                        IconAction(Icons.Outlined.FitScreen, "Enquadrar tudo", { view.fit(board.bounds()) })
+                    }
                 }
-                TextButton(onClick = { c.map.addImage(view.center()) }) { Text("+ Imagem") }
-                TextButton(onClick = { c.map.addText(view.center()) }) { Text("+ Texto") }
-                TextButton(onClick = { c.map.arrange(); view.fit(c.map.board?.bounds()) }, enabled = board.nodes.size >= 2) { Text("Arranjar") }
-                VerticalDivider(Modifier.height(24.dp).padding(horizontal = 4.dp))
-                IconAction(Icons.AutoMirrored.Outlined.Undo, "Desfazer (Ctrl+Z)", { c.map.undo() }, enabled = c.map.canUndo)
-                IconAction(Icons.AutoMirrored.Outlined.Redo, "Refazer (Ctrl+Shift+Z)", { c.map.redo() }, enabled = c.map.canRedo)
-                VerticalDivider(Modifier.height(24.dp).padding(horizontal = 4.dp))
-                IconAction(Icons.Outlined.Remove, "Diminuir zoom", { view.zoomBy(1f / 1.2f) })
-                Text(
-                    "${(view.zoom * 100).roundToInt()}%",
-                    style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.width(52.dp).clip(RoundedCornerShape(6.dp)).clickable { view.zoomBy(1f / view.zoom) }.padding(vertical = 6.dp),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                )
-                IconAction(Icons.Outlined.Add, "Aumentar zoom", { view.zoomBy(1.2f) })
-                IconAction(Icons.Outlined.FitScreen, "Enquadrar tudo", { view.fit(board.bounds()) })
             }
         }
         BoardTabs(c, boards)
@@ -143,17 +166,16 @@ private fun BoardTabs(c: EscribaController, boards: PlotBoards) {
     var removing by remember { mutableStateOf<Board?>(null) }
     var lastClick by remember { mutableStateOf("" to 0L) }
     Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 36.dp, end = 20.dp, bottom = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = Space.page - 6.dp, end = 20.dp, bottom = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         boards.boards.forEach { b ->
             val active = b.id == boards.active?.id
-            val shape = RoundedCornerShape(8.dp)
+            val shape = Radius.control
             Row(
                 Modifier.clip(shape)
-                    .background(if (active) scheme.secondaryContainer else Color.Transparent)
-                    .border(1.dp, if (active) scheme.primary.copy(alpha = 0.6f) else scheme.outlineVariant, shape)
+                    .background(if (active) LocalPalette.current.navSelected else Color.Transparent)
                     .clickable {
                         val t = currentTimeMillis()
                         if (lastClick.first == b.id && t - lastClick.second < 400) renaming = b
@@ -163,7 +185,7 @@ private fun BoardTabs(c: EscribaController, boards: PlotBoards) {
                     .padding(start = 12.dp, end = if (boards.boards.size > 1) 4.dp else 12.dp, top = 6.dp, bottom = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(b.name, style = MaterialTheme.typography.labelLarge, color = if (active) scheme.onSecondaryContainer else scheme.onSurfaceVariant, maxLines = 1)
+                Text(b.name, style = MaterialTheme.typography.labelLarge, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium, color = if (active) scheme.onSurface else LocalPalette.current.muted, maxLines = 1)
                 if (boards.boards.size > 1) {
                     Icon(
                         Icons.Outlined.Close, "Excluir quadro ${b.name}",
@@ -216,9 +238,9 @@ private fun SelectionBar(c: EscribaController, boards: PlotBoards, board: Board,
     }
     val current = edge?.color ?: nodes.map { it.color }.distinct().singleOrNull()
     var editingLabel by remember(edge?.id) { mutableStateOf(false) }
-    Surface(modifier, shape = RoundedCornerShape(12.dp), color = scheme.surface, shadowElevation = 4.dp, border = androidx.compose.foundation.BorderStroke(1.dp, scheme.outlineVariant)) {
-        Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(label, style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
+    FloatingPanel(modifier) {
+        Row(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Overline(label)
             Spacer(Modifier.width(12.dp))
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 BOARD_COLORS.chunked(10).forEachIndexed { row, colors ->
@@ -228,7 +250,7 @@ private fun SelectionBar(c: EscribaController, boards: PlotBoards, board: Board,
                     }
                 }
             }
-            VerticalDivider(Modifier.height(32.dp).padding(horizontal = 10.dp))
+            Box(Modifier.padding(horizontal = 12.dp).width(1.dp).height(28.dp).background(LocalPalette.current.hairline))
             if (edge != null) {
                 if (editingLabel) {
                     var text by remember(edge.id) { mutableStateOf(edge.label) }
@@ -279,11 +301,12 @@ private fun Swatch(hex: String?, tooltip: String?, selected: Boolean, onClick: (
 @Composable
 private fun LegendPanel(c: EscribaController, boards: PlotBoards, modifier: Modifier) {
     val scheme = MaterialTheme.colorScheme
-    var open by remember { mutableStateOf(true) }
-    Surface(modifier.width(230.dp), shape = RoundedCornerShape(12.dp), color = scheme.surface.copy(alpha = 0.95f), shadowElevation = 2.dp, border = androidx.compose.foundation.BorderStroke(1.dp, scheme.outlineVariant)) {
+    // Começa recolhida: a legenda é consulta, não precisa ocupar o quadro o tempo todo.
+    var open by remember { mutableStateOf(false) }
+    FloatingPanel(modifier.width(230.dp)) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-            Row(Modifier.fillMaxWidth().clickable { open = !open }, verticalAlignment = Alignment.CenterVertically) {
-                Text("LEGENDA DAS LIGAÇÕES", style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+            Row(Modifier.fillMaxWidth().clip(Radius.control).clickable { open = !open }, verticalAlignment = Alignment.CenterVertically) {
+                Overline("Legenda das ligações", Modifier.weight(1f))
                 Icon(if (open) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, if (open) "Recolher legenda" else "Abrir legenda", Modifier.size(18.dp), tint = scheme.onSurfaceVariant)
             }
             if (!open) return@Column
@@ -307,7 +330,11 @@ private fun LegendPanel(c: EscribaController, boards: PlotBoards, modifier: Modi
                     )
                 }
             }
-            TextButton(onClick = { c.map.addLegendColor() }, modifier = Modifier.fillMaxWidth()) { Text("+ Adicionar cor") }
+            TextButton(onClick = { c.map.addLegendColor() }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Outlined.Add, null, Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Adicionar cor")
+            }
         }
     }
 }

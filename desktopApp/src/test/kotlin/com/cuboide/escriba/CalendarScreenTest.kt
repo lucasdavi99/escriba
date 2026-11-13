@@ -81,7 +81,7 @@ class CalendarScreenTest {
                 // Céu do dia (sol, as duas luas) e o gráfico do ano, embaixo da grade do mês.
                 onNodeWithContentDescription("Lua Lume Pálido").fetchSemanticsNode()
                 onNodeWithContentDescription("Lua Brasa").fetchSemanticsNode()
-                onNodeWithText("☀ Nasce", substring = true).fetchSemanticsNode()
+                onNodeWithText("Nasce ", substring = true).fetchSemanticsNode()
                 onNodeWithContentDescription("Gráfico do ano").performScrollTo()
                 waitForIdle()
                 shot("calendario-ceu.png", onRoot().captureToImage().toAwtImage())

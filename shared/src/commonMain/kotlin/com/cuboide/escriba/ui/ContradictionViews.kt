@@ -1,5 +1,7 @@
 package com.cuboide.escriba.ui
 
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.draw.scale
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -56,13 +58,13 @@ fun ContradictionsBlock(c: EscribaController) {
     var showOthers by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("CONTRADIÇÕES", style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            Switch(on, { c.setCheckContradictions(it) }, modifier = Modifier.semantics { contentDescription = "Conferir contradições" })
+            Overline("Contradições", Modifier.weight(1f))
+            Switch(on, { c.setCheckContradictions(it) }, modifier = Modifier.scale(0.72f).height(28.dp).semantics { contentDescription = "Conferir contradições" })
         }
         if (!on) {
             Text(
                 "Desligada. Ligue para sublinhar no texto o que contradiz os fatos selados das fichas ou o próprio livro.",
-                style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall, color = LocalPalette.current.muted,
             )
         } else if (check != null) {
             val here = check.contradictions.filter { it.spot.chapterId == c.currentChapterId }
@@ -90,7 +92,7 @@ private fun ContradictionRow(c: EscribaController, item: Contradiction, chapterT
     val scheme = MaterialTheme.colorScheme
     Surface(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { c.openSpot(item.spot) },
-        shape = RoundedCornerShape(8.dp), color = scheme.errorContainer.copy(alpha = 0.45f),
+        shape = Radius.control, color = scheme.errorContainer.copy(alpha = 0.45f),
     ) {
         Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             if (chapterTitle != null) Text(chapterTitle, style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
@@ -165,7 +167,7 @@ fun BookReportDialog(c: EscribaController, check: BookCheck, onDismiss: () -> Un
 
 @Composable
 private fun ReportTitle(text: String) {
-    Text(text.uppercase(), Modifier.padding(top = 8.dp), style = MaterialTheme.typography.labelMedium, color = LocalPalette.current.accent, fontWeight = FontWeight.SemiBold)
+    Overline(text, Modifier.padding(top = 10.dp), accent = true)
 }
 
 // ---------- ficha ----------
@@ -182,7 +184,7 @@ fun SealCheckCard(c: EscribaController, entry: UniverseEntry) {
     val contradictions = c.bookCheck?.contradictions.orEmpty().filter { it.entryId == entry.id }
     if (suggestions.isEmpty() && relations.isEmpty() && contradictions.isEmpty()) return
     var replace by remember(entry.id) { mutableStateOf(emptySet<FactKind>()) }
-    Surface(shape = RoundedCornerShape(14.dp), color = scheme.surface, border = BorderStroke(1.dp, scheme.outlineVariant)) {
+    Surface(shape = Radius.surface, color = LocalPalette.current.paper, border = BorderStroke(1.dp, LocalPalette.current.hairline)) {
         Column(Modifier.padding(14.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("PARA CONFERIR", style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
             if (suggestions.isNotEmpty()) {

@@ -1,5 +1,21 @@
 package com.cuboide.escriba.ui
 
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.border
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
+import androidx.compose.material.icons.outlined.ViewAgenda
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.MoreHoriz
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
@@ -64,22 +80,17 @@ import com.cuboide.escriba.core.outline.StructureTemplates
 import com.cuboide.escriba.core.outline.groupByAct
 import com.cuboide.escriba.core.outline.statusCounts
 
-/** Título do Enredo com a escolha entre o mapa livre e o roteiro. */
+/** Título do Enredo com a escolha entre o mapa livre, o roteiro e a linha do tempo. */
 @Composable
-private fun EnredoHeader(c: EscribaController) {
+internal fun EnredoHeader(c: EscribaController) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("Enredo", style = MaterialTheme.typography.headlineMedium)
-        Spacer(Modifier.width(20.dp))
-        SingleChoiceSegmentedButtonRow {
-            EnredoView.entries.forEachIndexed { i, v ->
-                SegmentedButton(
-                    selected = c.enredoView == v,
-                    onClick = { c.map.flush(); c.enredoView = v },
-                    shape = SegmentedButtonDefaults.itemShape(i, EnredoView.entries.size),
-                    label = { Text(v.label, maxLines = 1, softWrap = false) },
-                )
-            }
-        }
+        Text("Enredo", style = MaterialTheme.typography.displaySmall)
+        Spacer(Modifier.width(28.dp))
+        SegmentedControl(
+            EnredoView.entries.map { it.label },
+            EnredoView.entries.indexOf(c.enredoView),
+            { i -> c.map.flush(); c.enredoView = EnredoView.entries[i] },
+        )
     }
 }
 
@@ -106,13 +117,10 @@ fun OutlineBoard(c: EscribaController, modifier: Modifier) {
     Column(modifier.background(MaterialTheme.colorScheme.background)) {
         OutlineToolbar(c, filter, characters, onFilter = { filter = it }, onNew = { editing = c.newBeat() }, onTemplate = { confirmTemplate = it })
         if (beats.isEmpty()) {
-            Column(Modifier.fillMaxWidth().padding(48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("O roteiro está vazio.", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "Crie cenas uma a uma ou comece por um modelo de estrutura em “Modelos”.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            EmptyState(
+                Icons.Outlined.ViewAgenda, "O roteiro está vazio.",
+                "Crie cenas uma a uma ou comece por um modelo de estrutura em “Modelos”.",
+            )
             return@Column
         }
         if (visible.isEmpty()) {
@@ -121,19 +129,18 @@ fun OutlineBoard(c: EscribaController, modifier: Modifier) {
         LazyVerticalGrid(
             columns = GridCells.Adaptive(260.dp),
             modifier = Modifier.weight(1f).fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(start = 36.dp, end = 28.dp, top = 8.dp, bottom = 24.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            contentPadding = PaddingValues(start = Space.page, end = Space.xl, top = 8.dp, bottom = 32.dp),
         ) {
             groupByAct(visible).forEachIndexed { g, group ->
                 if (group.act.isNotEmpty()) {
                     item(key = "act-$g", span = { GridItemSpan(maxLineSpan) }) {
-                        Text(
-                            group.act,
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(top = if (g == 0) 0.dp else 8.dp),
-                        )
+                        Column(Modifier.padding(top = if (g == 0) 4.dp else 20.dp)) {
+                            Text(group.act, style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Normal))
+                            Spacer(Modifier.height(8.dp))
+                            Hairline()
+                        }
                     }
                 }
                 items(group.beats, key = { it.id }) { beat ->
@@ -193,71 +200,94 @@ private fun OutlineToolbar(
     onTemplate: (StructureTemplate) -> Unit,
 ) {
     val outline = c.book?.outline ?: return
+    val palette = LocalPalette.current
     var statusMenu by remember { mutableStateOf(false) }
     var characterMenu by remember { mutableStateOf(false) }
     var templateMenu by remember { mutableStateOf(false) }
-    Surface(color = MaterialTheme.colorScheme.background) {
-        Column(Modifier.fillMaxWidth().padding(start = 36.dp, end = 28.dp, top = 28.dp, bottom = 12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                EnredoHeader(c)
-                Spacer(Modifier.weight(1f))
-                Box {
-                    TextButton(onClick = { templateMenu = true }) { Text("Modelos ▾") }
-                    DropdownMenu(expanded = templateMenu, onDismissRequest = { templateMenu = false }) {
-                        StructureTemplates.all.forEach { t ->
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text(t.name)
-                                        Text("${t.steps.size} cenas", style = MaterialTheme.typography.labelSmall)
-                                    }
-                                },
-                                onClick = { templateMenu = false; onTemplate(t) },
-                            )
-                        }
+    var query by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(filter.query)) }
+    Column(Modifier.fillMaxWidth().padding(start = Space.page, end = Space.xl, top = 36.dp, bottom = 16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            EnredoHeader(c)
+            Spacer(Modifier.weight(1f))
+            Box {
+                TextButton(onClick = { templateMenu = true }) {
+                    Text("Modelos")
+                    Icon(Icons.Outlined.KeyboardArrowDown, null, Modifier.size(18.dp))
+                }
+                DropdownMenu(expanded = templateMenu, onDismissRequest = { templateMenu = false }) {
+                    StructureTemplates.all.forEach { t ->
+                        DropdownMenuItem(
+                            text = {
+                                Column {
+                                    Text(t.name)
+                                    Text("${t.steps.size} cenas", style = MaterialTheme.typography.labelSmall, color = palette.muted)
+                                }
+                            },
+                            onClick = { templateMenu = false; onTemplate(t) },
+                        )
                     }
                 }
-                Button(onClick = onNew) { Text("+ Cena") }
             }
-            Text(
-                "${outline.beats.size} cena(s) · " + outline.statusCounts().filter { it.second > 0 }.joinToString(" · ") { "${it.first.label}: ${it.second}" },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(12.dp))
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = filter.query,
-                    onValueChange = { onFilter(filter.copy(query = it)) },
-                    singleLine = true,
-                    placeholder = { Text("Filtrar cenas") },
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.width(260.dp),
-                )
-                Box {
-                    TextButton(onClick = { statusMenu = true }) { Text("Status: ${filter.status?.label ?: "todos"} ▾") }
-                    DropdownMenu(expanded = statusMenu, onDismissRequest = { statusMenu = false }) {
-                        DropdownMenuItem(text = { Text("Todos") }, onClick = { statusMenu = false; onFilter(filter.copy(status = null)) })
-                        BeatStatus.entries.forEach { s ->
-                            DropdownMenuItem(text = { Text(s.label) }, onClick = { statusMenu = false; onFilter(filter.copy(status = s)) })
-                        }
-                    }
-                }
-                Box {
-                    val selected = characters.firstOrNull { it.id == filter.characterId }
-                    TextButton(onClick = { characterMenu = true }, enabled = characters.isNotEmpty()) {
-                        Text("Personagem: ${selected?.name ?: "todos"} ▾", maxLines = 1)
-                    }
-                    DropdownMenu(expanded = characterMenu, onDismissRequest = { characterMenu = false }) {
-                        DropdownMenuItem(text = { Text("Todos") }, onClick = { characterMenu = false; onFilter(filter.copy(characterId = null)) })
-                        characters.forEach { e ->
-                            DropdownMenuItem(text = { Text(e.name) }, onClick = { characterMenu = false; onFilter(filter.copy(characterId = e.id)) })
-                        }
-                    }
-                }
-                if (filter != BeatFilter()) TextButton(onClick = { onFilter(BeatFilter()) }) { Text("Limpar filtros") }
+            Spacer(Modifier.width(4.dp))
+            Button(onClick = onNew) {
+                Icon(Icons.Outlined.Add, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Nova cena")
             }
         }
+        Spacer(Modifier.height(18.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            CompactField(query, { query = it; onFilter(filter.copy(query = it.text)) }, "Filtrar cenas", Modifier.width(240.dp), leading = Icons.Outlined.Search)
+            Box {
+                FilterPill("Status: ${filter.status?.label ?: "todos"}", filter.status != null) { statusMenu = true }
+                DropdownMenu(expanded = statusMenu, onDismissRequest = { statusMenu = false }) {
+                    DropdownMenuItem(text = { Text("Todos") }, onClick = { statusMenu = false; onFilter(filter.copy(status = null)) })
+                    BeatStatus.entries.forEach { s ->
+                        DropdownMenuItem(
+                            text = { Text(s.label) }, leadingIcon = { StatusDot(statusTone(s.ordinal)) },
+                            onClick = { statusMenu = false; onFilter(filter.copy(status = s)) },
+                        )
+                    }
+                }
+            }
+            Box {
+                val selected = characters.firstOrNull { it.id == filter.characterId }
+                FilterPill("Personagem: ${selected?.name ?: "todos"}", selected != null, enabled = characters.isNotEmpty()) { characterMenu = true }
+                DropdownMenu(expanded = characterMenu, onDismissRequest = { characterMenu = false }) {
+                    DropdownMenuItem(text = { Text("Todos") }, onClick = { characterMenu = false; onFilter(filter.copy(characterId = null)) })
+                    characters.forEach { e ->
+                        DropdownMenuItem(text = { Text(e.name) }, onClick = { characterMenu = false; onFilter(filter.copy(characterId = e.id)) })
+                    }
+                }
+            }
+            if (filter != BeatFilter()) TextButton(onClick = { query = androidx.compose.ui.text.input.TextFieldValue(""); onFilter(BeatFilter()) }) { Text("Limpar filtros") }
+            Spacer(Modifier.weight(1f))
+            // Contagem por status, discreta, à direita.
+            Text("${outline.beats.size} ${if (outline.beats.size == 1) "cena" else "cenas"}", style = MaterialTheme.typography.labelMedium, color = palette.muted)
+            outline.statusCounts().filter { it.second > 0 }.forEach { (status, n) ->
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 6.dp)) {
+                    StatusDot(statusTone(status.ordinal), 6.dp)
+                    Spacer(Modifier.width(5.dp))
+                    Text("${status.label} $n", style = MaterialTheme.typography.labelMedium, color = palette.muted)
+                }
+            }
+        }
+    }
+}
+
+/** Pílula de filtro com seta; fica no acento quando o filtro está ativo. */
+@Composable
+internal fun FilterPill(label: String, active: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
+    val palette = LocalPalette.current
+    Row(
+        Modifier.height(36.dp).clip(Radius.control)
+            .background(if (active) palette.accentSoft else MaterialTheme.colorScheme.surfaceContainerLowest)
+            .border(1.dp, if (active) palette.accent.copy(alpha = 0.4f) else palette.hairline, Radius.control)
+            .clickable(enabled = enabled, onClick = onClick).padding(start = 12.dp, end = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, style = MaterialTheme.typography.labelLarge, color = if (active) palette.accent else MaterialTheme.colorScheme.onSurface, maxLines = 1)
+        Icon(Icons.Outlined.KeyboardArrowDown, null, Modifier.size(18.dp), tint = palette.muted)
     }
 }
 
@@ -272,37 +302,40 @@ private fun BeatCard(
     characters: List<UniverseEntry>,
     onEdit: () -> Unit,
 ) {
+    val palette = LocalPalette.current
     var menu by remember { mutableStateOf(false) }
     val chapter = beat.chapterId?.let { id -> chapters.firstOrNull { it.id == id } }
     val names = beat.characterIds.mapNotNull { id -> characters.firstOrNull { it.id == id }?.name }
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
     Surface(
-        color = MaterialTheme.colorScheme.surface,
-        shadowElevation = 1.dp,
-        shape = MaterialTheme.shapes.medium,
-        modifier = Modifier.fillMaxWidth().heightIn(min = 140.dp).clickable(onClick = onEdit),
+        color = palette.paper,
+        shape = Radius.surface,
+        border = androidx.compose.foundation.BorderStroke(1.dp, if (hovered) palette.accent.copy(alpha = 0.45f) else palette.hairline),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 150.dp).hoverable(interaction).clickable(onClick = onEdit),
     ) {
-        Column(Modifier.padding(start = 12.dp, top = 4.dp, bottom = 12.dp)) {
+        Column(Modifier.padding(start = 16.dp, top = 8.dp, bottom = 14.dp, end = 6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "$number · ${beat.status.label}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = statusColor(beat.status),
-                    modifier = Modifier.weight(1f),
-                )
+                Text("$number", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Normal), color = palette.muted)
+                Spacer(Modifier.width(10.dp))
+                StatusDot(statusTone(beat.status.ordinal), 6.dp)
+                Spacer(Modifier.width(6.dp))
+                Text(beat.status.label, style = MaterialTheme.typography.labelMedium, color = palette.muted, modifier = Modifier.weight(1f))
                 Box {
-                    TextButton(onClick = { menu = true }) { Text("⋯") }
+                    IconAction(Icons.Outlined.MoreHoriz, "Opções da cena", onClick = { menu = true }, size = 30.dp)
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                         DropdownMenuItem(text = { Text("Editar") }, onClick = { menu = false; onEdit() })
                         if (canMoveUp) DropdownMenuItem(text = { Text("Mover para antes") }, onClick = { menu = false; c.moveBeat(beat.id, -1) })
                         if (canMoveDown) DropdownMenuItem(text = { Text("Mover para depois") }, onClick = { menu = false; c.moveBeat(beat.id, 1) })
-                        HorizontalDivider()
+                        HorizontalDivider(color = palette.hairline)
                         BeatStatus.entries.forEach { s ->
                             DropdownMenuItem(
-                                text = { Text((if (s == beat.status) "● " else "○ ") + s.label) },
+                                text = { Text(s.label, fontWeight = if (s == beat.status) FontWeight.SemiBold else FontWeight.Normal) },
+                                leadingIcon = { StatusDot(statusTone(s.ordinal), if (s == beat.status) 9.dp else 6.dp) },
                                 onClick = { menu = false; c.saveBeat(beat.copy(status = s)) },
                             )
                         }
-                        HorizontalDivider()
+                        HorizontalDivider(color = palette.hairline)
                         if (chapter != null) {
                             DropdownMenuItem(text = { Text("Abrir capítulo") }, onClick = { menu = false; c.openBeatChapter(beat) })
                         } else {
@@ -312,55 +345,40 @@ private fun BeatCard(
                     }
                 }
             }
-            Column(Modifier.padding(end = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(beat.title.ifBlank { "(sem título)" }, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                if (beat.whenText.isNotBlank()) {
-                    Text(
-                        "🗓 " + (beat.date?.let { c.calendar.format(it) } ?: beat.whenText),
-                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary,
-                    )
-                }
+            Column(Modifier.padding(end = 10.dp, top = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(beat.title.ifBlank { "(sem título)" }, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 if (beat.summary.isNotBlank()) {
                     Text(
-                        beat.summary, style = MaterialTheme.typography.bodySmall, maxLines = 4,
-                        overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        beat.summary, style = MaterialTheme.typography.bodySmall, maxLines = 3,
+                        overflow = TextOverflow.Ellipsis, color = palette.muted,
                     )
+                }
+                if (beat.whenText.isNotBlank()) {
+                    MetaLine(Icons.Outlined.CalendarMonth, beat.date?.let { c.calendar.format(it) } ?: beat.whenText)
                 }
                 when {
-                    chapter != null -> Text(
-                        "📖 ${chapter.title}",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.clickable { c.openBeatChapter(beat) },
-                    )
-                    beat.chapterId != null -> Text(
-                        "Capítulo vinculado não existe mais",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error,
-                    )
+                    chapter != null -> MetaLine(Icons.AutoMirrored.Outlined.MenuBook, chapter.title, palette.accent) { c.openBeatChapter(beat) }
+                    beat.chapterId != null -> MetaLine(Icons.AutoMirrored.Outlined.MenuBook, "Capítulo vinculado não existe mais", MaterialTheme.colorScheme.error)
                 }
-                if (names.isNotEmpty()) {
-                    Text(
-                        names.joinToString(" · ") { "@$it" },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.tertiary,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+                if (names.isNotEmpty()) MetaLine(Icons.Outlined.Person, names.joinToString(", "))
             }
         }
     }
 }
 
+/** Linha de metadado de um cartão: ícone pequeno e texto discreto (opcionalmente clicável). */
 @Composable
-private fun statusColor(status: BeatStatus) = when (status) {
-    BeatStatus.Planejada -> MaterialTheme.colorScheme.onSurfaceVariant
-    BeatStatus.Escrevendo -> MaterialTheme.colorScheme.tertiary
-    BeatStatus.Escrita -> MaterialTheme.colorScheme.primary
-    BeatStatus.Revisada -> MaterialTheme.colorScheme.secondary
+private fun MetaLine(icon: androidx.compose.ui.graphics.vector.ImageVector, text: String, color: Color = Color.Unspecified, onClick: (() -> Unit)? = null) {
+    val palette = LocalPalette.current
+    val tint = if (color == Color.Unspecified) palette.muted else color
+    Row(
+        Modifier.then(if (onClick != null) Modifier.clip(Radius.control).clickable(onClick = onClick) else Modifier),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, Modifier.size(14.dp), tint = tint)
+        Spacer(Modifier.width(6.dp))
+        Text(text, style = MaterialTheme.typography.labelMedium, color = tint, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)

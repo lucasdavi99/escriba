@@ -27,6 +27,9 @@ private val dateTimeFormat = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm", Loc
 actual fun formatDateTime(epochMillis: Long): String =
     Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault()).format(dateTimeFormat)
 
+actual fun localHour(epochMillis: Long): Int =
+    Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault()).hour
+
 private val home: String get() = System.getProperty("user.home")
 
 actual fun defaultLibraryDir(): String = File(home, "Documents/Escriba").path

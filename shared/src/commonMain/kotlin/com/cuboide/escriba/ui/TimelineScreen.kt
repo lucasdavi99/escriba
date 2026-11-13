@@ -1,5 +1,6 @@
 package com.cuboide.escriba.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -65,11 +66,11 @@ fun TimelineView(c: EscribaController, header: @Composable () -> Unit, modifier:
     var editing by remember { mutableStateOf<Beat?>(null) }
 
     Column(modifier.background(MaterialTheme.colorScheme.background)) {
-        Row(Modifier.fillMaxWidth().padding(start = 36.dp, end = 28.dp, top = 28.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(start = Space.page, end = Space.xl, top = 36.dp, bottom = 20.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.weight(1f)) { header() }
             Text(
                 if (book.calendar == null) "Calendário comum" else cal.name,
-                style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelLarge, color = LocalPalette.current.muted,
             )
             TextButton(onClick = { c.goTo(Section.Universo); c.showCalendar() }) { Text("Abrir calendário") }
         }
@@ -79,7 +80,7 @@ fun TimelineView(c: EscribaController, header: @Composable () -> Unit, modifier:
                 "Abra uma cena no Roteiro e preencha “Quando” (por exemplo, “12 de março, 40”). Ela aparece aqui, em ordem de data.",
             )
         }
-        LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(start = 36.dp, end = 28.dp, bottom = 24.dp)) {
+        LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(start = Space.page, end = Space.xl, bottom = 32.dp)) {
             var presentShown = presentIdx == null
             timeline.dated.forEachIndexed { i, item ->
                 if (!presentShown && presentIdx!! < item.index) {
@@ -121,40 +122,55 @@ fun TimelineView(c: EscribaController, header: @Composable () -> Unit, modifier:
     }
 }
 
+/** Coluna da espinha: o fio vertical contínuo e, opcionalmente, o nó da cena. */
+@Composable
+private fun Spine(dot: Boolean, dashed: Boolean = false, modifier: Modifier = Modifier) {
+    val palette = LocalPalette.current
+    Canvas(modifier.width(28.dp).fillMaxHeight()) {
+        val x = size.width / 2
+        drawLine(
+            palette.hairline.copy(alpha = 1f), androidx.compose.ui.geometry.Offset(x, 0f), androidx.compose.ui.geometry.Offset(x, size.height), 2f,
+            pathEffect = if (dashed) androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(4f, 5f)) else null,
+        )
+        if (dot) {
+            val y = 22.dp.toPx()
+            drawCircle(palette.paper, 8.dp.toPx(), androidx.compose.ui.geometry.Offset(x, y))
+            drawCircle(palette.accent, 5.dp.toPx(), androidx.compose.ui.geometry.Offset(x, y))
+        }
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TimelineRow(c: EscribaController, item: DatedBeat, characters: List<com.cuboide.escriba.core.model.UniverseEntry>, onEdit: () -> Unit) {
     val cal = c.calendar
-    val scheme = MaterialTheme.colorScheme
-    Row(Modifier.fillMaxWidth().heightIn(min = 72.dp), verticalAlignment = Alignment.Top) {
-        Column(Modifier.width(200.dp).padding(top = 10.dp, end = 12.dp)) {
-            Text(cal.format(item.date), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+    val palette = LocalPalette.current
+    Row(Modifier.fillMaxWidth().height(androidx.compose.foundation.layout.IntrinsicSize.Min).heightIn(min = 76.dp), verticalAlignment = Alignment.Top) {
+        Column(Modifier.width(210.dp).padding(top = 12.dp, end = 16.dp), horizontalAlignment = Alignment.End) {
+            Text(cal.format(item.date), style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Normal), textAlign = androidx.compose.ui.text.style.TextAlign.End)
             // Dia da semana só faz sentido quando a data tem dia.
             if (item.date.precision == DatePrecision.Day) {
-                cal.weekdayOf(item.date)?.let { Text(cal.weekdays[it], style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant) }
+                cal.weekdayOf(item.date)?.let { Text(cal.weekdays[it], style = MaterialTheme.typography.labelSmall, color = palette.muted) }
             }
         }
-        Column(Modifier.width(20.dp).fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally) {
-            Spacer(Modifier.height(14.dp))
-            Box(Modifier.size(12.dp).clip(CircleShape).background(LocalPalette.current.accent))
-        }
+        Spine(dot = true)
         Surface(
-            Modifier.weight(1f).padding(vertical = 4.dp).clip(RoundedCornerShape(12.dp)).clickable(onClick = onEdit)
+            Modifier.weight(1f).padding(start = 12.dp, top = 4.dp, bottom = 8.dp).clip(Radius.surface).clickable(onClick = onEdit)
                 .semantics { contentDescription = "Cena na linha do tempo: ${item.beat.title}" },
-            shape = RoundedCornerShape(12.dp), color = scheme.surface, border = BorderStroke(1.dp, scheme.outlineVariant),
+            shape = Radius.surface, color = palette.paper, border = BorderStroke(1.dp, palette.hairline),
         ) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(item.beat.title.ifBlank { "(sem título)" }, fontWeight = FontWeight.SemiBold)
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(item.beat.title.ifBlank { "(sem título)" }, style = MaterialTheme.typography.titleMedium)
                 if (item.beat.summary.isNotBlank()) {
-                    Text(item.beat.summary, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    Text(item.beat.summary, style = MaterialTheme.typography.bodySmall, color = palette.muted, maxLines = 3, overflow = TextOverflow.Ellipsis)
                 }
                 if (characters.isNotEmpty()) {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         characters.forEach { e ->
                             val age = cal.ageLabel(e, item.date)
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { c.openUniverseEntry(e.id) }) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clip(Radius.control).clickable { c.openUniverseEntry(e.id) }) {
                                 EntryAvatar(c, e, 20)
-                                Spacer(Modifier.width(4.dp))
+                                Spacer(Modifier.width(6.dp))
                                 Text(e.name + (age?.let { " · $it" } ?: ""), style = MaterialTheme.typography.labelMedium)
                             }
                         }
@@ -167,36 +183,45 @@ private fun TimelineRow(c: EscribaController, item: DatedBeat, characters: List<
 
 @Composable
 private fun GapLabel(text: String) {
-    Row(Modifier.fillMaxWidth().padding(start = 200.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.width(20.dp), contentAlignment = Alignment.Center) { Box(Modifier.width(2.dp).height(18.dp).background(MaterialTheme.colorScheme.outlineVariant)) }
-        Text(text, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Row(Modifier.fillMaxWidth().height(30.dp), verticalAlignment = Alignment.CenterVertically) {
+        Spacer(Modifier.width(210.dp))
+        Spine(dot = false, dashed = true)
+        Text(text, style = MaterialTheme.typography.labelSmall, color = LocalPalette.current.muted, modifier = Modifier.padding(start = 12.dp))
     }
 }
 
 @Composable
 private fun PresentMarker(date: String) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp).semantics { contentDescription = "Presente da história" }, verticalAlignment = Alignment.CenterVertically) {
-        Text("Presente da história · $date", Modifier.width(220.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-        Box(Modifier.weight(1f).height(2.dp).background(MaterialTheme.colorScheme.primary))
+    val palette = LocalPalette.current
+    Row(Modifier.fillMaxWidth().padding(vertical = 10.dp).semantics { contentDescription = "Presente da história" }, verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.width(210.dp).padding(end = 16.dp), horizontalAlignment = Alignment.End) {
+            Overline("Presente da história", accent = true)
+            Text(date, style = MaterialTheme.typography.labelMedium, color = palette.accent)
+        }
+        Box(Modifier.width(28.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(12.dp).clip(CircleShape).background(palette.accent))
+        }
+        Box(Modifier.weight(1f).padding(start = 12.dp).height(1.5.dp).background(palette.accent.copy(alpha = 0.6f)))
     }
 }
 
 @Composable
 private fun SectionLabel(text: String) {
-    Text(text.uppercase(), Modifier.padding(top = 20.dp, bottom = 8.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Overline(text, Modifier.padding(top = 28.dp, bottom = 10.dp))
 }
 
 @Composable
 private fun LooseBeat(title: String, detail: String?, warning: Boolean, onClick: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
+    val palette = LocalPalette.current
     Surface(
-        Modifier.clip(RoundedCornerShape(10.dp)).clickable(onClick = onClick).padding(bottom = 6.dp),
-        shape = RoundedCornerShape(10.dp), color = scheme.surface,
-        border = BorderStroke(1.dp, if (warning) scheme.error else scheme.outlineVariant),
+        Modifier.padding(bottom = 6.dp).clip(Radius.surface).clickable(onClick = onClick),
+        shape = Radius.surface, color = palette.paper,
+        border = BorderStroke(1.dp, if (warning) scheme.error.copy(alpha = 0.6f) else palette.hairline),
     ) {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 9.dp)) {
             Text(title.ifBlank { "(sem título)" }, style = MaterialTheme.typography.bodyMedium)
-            if (detail != null) Text(detail, style = MaterialTheme.typography.bodySmall, color = if (warning) scheme.error else scheme.onSurfaceVariant)
+            if (detail != null) Text(detail, style = MaterialTheme.typography.bodySmall, color = if (warning) scheme.error else palette.muted)
         }
     }
 }

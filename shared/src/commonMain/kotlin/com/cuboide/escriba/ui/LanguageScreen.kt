@@ -94,10 +94,12 @@ fun LanguageScreen(c: EscribaController) {
 
 @Composable
 private fun Card(title: String, modifier: Modifier = Modifier, trailing: @Composable () -> Unit = {}, content: @Composable ColumnScope.() -> Unit) {
-    Surface(modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    // Seção tipográfica: um fio em cima, o título em versal e o conteúdo, sem caixa em volta.
+    Column(modifier.fillMaxWidth()) {
+        Hairline()
+        Column(Modifier.padding(top = 14.dp, bottom = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(title.uppercase(), style = MaterialTheme.typography.labelMedium, color = LocalPalette.current.accent, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                Overline(title, Modifier.weight(1f), accent = true)
                 trailing()
             }
             content()
@@ -125,11 +127,11 @@ private fun StylePicker(c: EscribaController) {
         FlowRow(Modifier.width(760.dp), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             LangStyle.entries.forEach { s ->
                 Surface(
-                    Modifier.width(230.dp).clip(RoundedCornerShape(14.dp)).clickable { c.createLanguage(s) }.semantics { contentDescription = "Estilo ${s.label}" },
-                    shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    Modifier.width(230.dp).clip(Radius.surface).clickable { c.createLanguage(s) }.semantics { contentDescription = "Estilo ${s.label}" },
+                    shape = Radius.surface, color = LocalPalette.current.paper, border = BorderStroke(1.dp, LocalPalette.current.hairline),
                 ) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(s.label.uppercase(), style = MaterialTheme.typography.labelMedium, color = LocalPalette.current.accent, fontWeight = FontWeight.SemiBold)
+                        Text(s.label, style = MaterialTheme.typography.titleLarge)
                         Text(s.description, style = MaterialTheme.typography.bodySmall)
                     }
                 }
@@ -202,7 +204,7 @@ private fun Rule(label: String, value: String) {
         Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
         Text(value, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
     }
-    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    HorizontalDivider(color = LocalPalette.current.hairline)
 }
 
 @Composable
@@ -224,7 +226,7 @@ private fun TranslatorCard(c: EscribaController, lang: Language, coined: Map<Str
                 }
             }
         }
-        Surface(shape = RoundedCornerShape(12.dp), color = scheme.surfaceContainerHigh) {
+        Surface(shape = RoundedCornerShape(10.dp), color = scheme.surfaceContainerHigh) {
             Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (scriptFamily != null && t.sentence.isNotBlank()) {
                     Text(
@@ -339,7 +341,7 @@ private fun SameWordCard(lang: Language) {
             }
             Column(Modifier.weight(1.2f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 VarietyAxis.entries.forEach { axis ->
-                    Text(axis.label.uppercase(), style = MaterialTheme.typography.labelSmall, color = LocalPalette.current.accent, modifier = Modifier.padding(top = 4.dp))
+                    Overline(axis.label, Modifier.padding(top = 4.dp), accent = true)
                     varieties.filter { it.axis == axis }.forEach { v ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {

@@ -1,5 +1,7 @@
 package com.cuboide.escriba.ui
 
+import androidx.compose.ui.draw.shadow
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -86,40 +88,42 @@ fun TrashScreen(c: EscribaController) {
             EmptyState(Icons.Outlined.DeleteOutline, "A lixeira está vazia", "Livros, capítulos, fichas e cenas apagados aparecem aqui e podem ser restaurados.")
             return@SectionPage
         }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            FilterChip(filter == null, { filter = null }, label = { Text("Todos (${c.trashItems.size})") })
-            TrashKind.entries.forEach { kind ->
-                val count = c.trashItems.count { it.kind == kind }
-                if (count > 0) FilterChip(filter == kind, { filter = kind }, label = { Text("${kind.label} ($count)") })
-            }
-            Spacer(Modifier.weight(1f))
+        val kinds = TrashKind.entries.filter { k -> c.trashItems.any { it.kind == k } }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            QuietTabs(
+                listOf(TabItem("Todos", c.trashItems.size)) + kinds.map { k -> TabItem(k.label, c.trashItems.count { it.kind == k }) },
+                selected = filter?.let { kinds.indexOf(it) + 1 } ?: 0,
+                onSelect = { i -> filter = if (i == 0) null else kinds[i - 1] },
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(16.dp))
             OutlinedButton(onClick = { c.restoreAllFromTrash(visible) }, enabled = visible.isNotEmpty()) { Text("Restaurar todos") }
             TextButton(onClick = { confirmEmpty = true }, enabled = visible.isNotEmpty()) { Text(if (filter == null) "Esvaziar lixeira" else "Excluir todos") }
         }
-        Spacer(Modifier.height(4.dp))
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Spacer(Modifier.height(8.dp))
+        val palette = LocalPalette.current
+        LazyColumn {
             items(visible, key = { it.id }) { item ->
-                Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                    Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.secondaryContainer), contentAlignment = Alignment.Center) {
-                            Icon(item.kind.icon, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
-                        }
-                        Spacer(Modifier.width(14.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(item.title.ifBlank { "(sem título)" }, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                            val origin = if (item.bookTitle != null && item.kind != TrashKind.Livro) " · de “${item.bookTitle}”" else ""
-                            Text(
-                                "${item.kind.label}$origin · apagado em ${formatDateTime(item.deletedAt)}",
-                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        val left = c.trashDaysLeft(item)
-                        StatusPill("$left dia(s)", if (left <= 3) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.secondary)
-                        Spacer(Modifier.width(12.dp))
-                        TextButton(onClick = { confirmDelete = item }) { Text("Excluir") }
-                        Button(onClick = { c.restoreFromTrash(item) }) { Text("Restaurar") }
+                Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(40.dp).clip(Radius.surface).background(palette.accentSoft), contentAlignment = Alignment.Center) {
+                        Icon(item.kind.icon, null, Modifier.size(19.dp), tint = palette.accent)
                     }
+                    Spacer(Modifier.width(16.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(item.title.ifBlank { "(sem título)" }, style = MaterialTheme.typography.titleMedium)
+                        val origin = if (item.bookTitle != null && item.kind != TrashKind.Livro) " · de “${item.bookTitle}”" else ""
+                        Text(
+                            "${item.kind.label}$origin · apagado ${relativeTime(item.deletedAt)}",
+                            style = MaterialTheme.typography.bodySmall, color = palette.muted,
+                        )
+                    }
+                    val left = c.trashDaysLeft(item)
+                    StatusPill(if (left == 1) "1 dia" else "$left dias", if (left <= 3) palette.danger else palette.muted)
+                    Spacer(Modifier.width(12.dp))
+                    TextButton(onClick = { confirmDelete = item }) { Text("Excluir") }
+                    FilledTonalButton(onClick = { c.restoreFromTrash(item) }) { Text("Restaurar") }
                 }
+                Hairline()
             }
         }
     }
@@ -154,50 +158,78 @@ fun TrashScreen(c: EscribaController) {
 fun SettingsScreen(c: EscribaController) {
     val s = c.settings
     SectionPage("Preferências", "Aparência, editor e dados") {
-        Column(Modifier.verticalScroll(rememberScrollState()).widthIn(max = 900.dp), verticalArrangement = Arrangement.spacedBy(28.dp)) {
+        Column(Modifier.verticalScroll(rememberScrollState()).widthIn(max = 880.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(40.dp)) {
             SettingsGroup("Tema") {
-                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.padding(vertical = 8.dp)) {
                     ThemeId.entries.forEach { t -> ThemeCard(t, selected = s.theme == t, Modifier.weight(1f)) { c.updateSettings { it.copy(theme = t) } } }
                 }
             }
             SettingsGroup("Editor") {
                 FontPicker(s.editorFont) { name -> c.updateSettings { it.copy(editorFont = name) } }
-                SliderRow("Tamanho da fonte", "${s.editorFontSize}", s.editorFontSize.toFloat(), 13f..32f) { v -> c.updateSettings { it.copy(editorFontSize = v.toInt()) } }
-                SliderRow("Entrelinha", "${(s.lineSpacing * 10).toInt() / 10f}", s.lineSpacing, 1.2f..2.4f) { v -> c.updateSettings { it.copy(lineSpacing = v) } }
-                SliderRow("Largura da página", "${s.editorWidth} dp", s.editorWidth.toFloat(), 520f..1100f) { v -> c.updateSettings { it.copy(editorWidth = (v / 20).toInt() * 20) } }
+                Hairline()
+                StepperRow("Tamanho da fonte", "${s.editorFontSize}",
+                    onMinus = { c.updateSettings { it.copy(editorFontSize = (it.editorFontSize - 1).coerceAtLeast(13)) } },
+                    onPlus = { c.updateSettings { it.copy(editorFontSize = (it.editorFontSize + 1).coerceAtMost(32)) } })
+                Hairline()
+                StepperRow("Entrelinha", "${(s.lineSpacing * 10).toInt() / 10f}",
+                    onMinus = { c.updateSettings { it.copy(lineSpacing = (it.lineSpacing - 0.1f).coerceAtLeast(1.2f)) } },
+                    onPlus = { c.updateSettings { it.copy(lineSpacing = (it.lineSpacing + 0.1f).coerceAtMost(2.4f)) } })
+                Hairline()
+                StepperRow("Largura da página", "${s.editorWidth}",
+                    onMinus = { c.updateSettings { it.copy(editorWidth = (it.editorWidth - 40).coerceAtLeast(520)) } },
+                    onPlus = { c.updateSettings { it.copy(editorWidth = (it.editorWidth + 40).coerceAtMost(1100)) } })
+                Hairline()
                 SwitchRow("Recuo de primeira linha (estilo livro)", s.firstLineIndent) { v -> c.updateSettings { it.copy(firstLineIndent = v) } }
+                Hairline()
                 SwitchRow("Menu lateral expandido", s.navExpanded) { v -> c.updateSettings { it.copy(navExpanded = v) } }
             }
             SettingsGroup("Dados") {
-                SliderRow(
-                    "Dias na lixeira", "${s.trashRetentionDays}", s.trashRetentionDays.toFloat(),
-                    TrashStore.MIN_RETENTION_DAYS.toFloat()..TrashStore.MAX_RETENTION_DAYS.toFloat(),
-                ) { v -> c.updateSettings { it.copy(trashRetentionDays = v.toInt()) } }
+                StepperRow("Dias na lixeira", "${s.trashRetentionDays}",
+                    onMinus = { c.updateSettings { it.copy(trashRetentionDays = (it.trashRetentionDays - 5).coerceAtLeast(TrashStore.MIN_RETENTION_DAYS)) } },
+                    onPlus = { c.updateSettings { it.copy(trashRetentionDays = (it.trashRetentionDays + 5).coerceAtMost(TrashStore.MAX_RETENTION_DAYS)) } })
+                Hairline()
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("Pasta dos livros", style = MaterialTheme.typography.bodyMedium)
-                        Text(c.libraryDir, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(c.libraryDir, style = MaterialTheme.typography.bodySmall, color = LocalPalette.current.muted)
                     }
                     OutlinedButton(onClick = { revealInFileManager(c.libraryDir) }) {
                         Icon(Icons.Outlined.FolderOpen, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Abrir pasta")
                     }
                 }
             }
-            Text(
-                "Atalhos: Ctrl+1…7 trocam de seção · Ctrl+F localizar · Ctrl+Shift+F buscar no livro · Ctrl+B/I negrito/itálico · F11 modo foco · Ctrl+S salvar",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            SettingsGroup("Atalhos") {
+                listOf(
+                    "Ctrl+1…7" to "Trocar de seção", "Ctrl+F" to "Localizar e substituir no capítulo", "Ctrl+Shift+F" to "Buscar no livro",
+                    "Ctrl+B · Ctrl+I" to "Negrito · itálico", "F11" to "Modo foco (Esc sai)", "Ctrl+S" to "Salvar agora",
+                ).forEach { (keys, what) ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(what, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                        Text(
+                            keys, style = MaterialTheme.typography.labelMedium, color = LocalPalette.current.muted,
+                            modifier = Modifier.clip(Radius.control).background(MaterialTheme.colorScheme.surfaceContainer).padding(horizontal = 8.dp, vertical = 3.dp),
+                        )
+                    }
+                }
+            }
         }
     }
 }
 
 @Composable
 private fun SettingsGroup(title: String, content: @Composable () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(title, style = MaterialTheme.typography.titleLarge)
-        Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-            Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) { content() }
-        }
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Text(title, style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Normal))
+        Hairline()
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) { content() }
+    }
+}
+
+@Composable
+private fun StepperRow(label: String, value: String, onMinus: () -> Unit, onPlus: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+        Stepper(label, value, onMinus, onPlus)
     }
 }
 
@@ -207,17 +239,18 @@ private fun ThemeCard(theme: ThemeId, selected: Boolean, modifier: Modifier, onC
     EscribaTheme(theme, editorFont = "") {
         val palette = LocalPalette.current
         Column(
-            modifier.clip(RoundedCornerShape(14.dp))
-                .border(if (selected) 2.dp else 1.dp, if (selected) palette.accent else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp))
+            modifier.clip(Radius.surface)
+                .border(if (selected) 2.dp else 1.dp, if (selected) palette.accent else palette.hairline, Radius.surface)
                 .clickable(onClick = onClick),
         ) {
             Row(Modifier.fillMaxWidth().height(86.dp)) {
-                Column(Modifier.width(26.dp).height(86.dp).background(palette.navBackground).padding(top = 10.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Box(Modifier.size(10.dp).clip(CircleShape).background(palette.accent))
-                    repeat(3) { Box(Modifier.size(width = 12.dp, height = 3.dp).background(palette.navContent.copy(alpha = 0.6f))) }
+                Column(Modifier.width(30.dp).height(86.dp).background(palette.navBackground).padding(top = 10.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Box(Modifier.size(6.dp).clip(CircleShape).background(palette.accent))
+                    repeat(3) { i -> Box(Modifier.size(width = 14.dp, height = 3.dp).clip(RoundedCornerShape(2.dp)).background(if (i == 0) palette.navSelectedContent.copy(alpha = 0.7f) else palette.navContent.copy(alpha = 0.45f))) }
                 }
+                Box(Modifier.width(1.dp).height(86.dp).background(palette.hairline))
                 Box(Modifier.weight(1f).height(86.dp).background(palette.desk).padding(10.dp)) {
-                    Column(Modifier.fillMaxWidth().height(66.dp).background(palette.paper).padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Column(Modifier.fillMaxWidth().height(66.dp).shadow(3.dp, RoundedCornerShape(2.dp)).background(palette.paper).padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("Aa", color = palette.ink, style = MaterialTheme.typography.titleMedium, fontFamily = LocalFonts.current.book)
                         Box(Modifier.fillMaxWidth(0.8f).height(3.dp).background(palette.ink.copy(alpha = 0.3f)))
                         Box(Modifier.fillMaxWidth(0.6f).height(3.dp).background(palette.ink.copy(alpha = 0.3f)))
@@ -227,7 +260,7 @@ private fun ThemeCard(theme: ThemeId, selected: Boolean, modifier: Modifier, onC
             Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(theme.label, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-                    Text(theme.description, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(theme.description, style = MaterialTheme.typography.labelSmall, color = palette.muted)
                 }
                 if (selected) Icon(Icons.Outlined.Check, null, tint = palette.accent)
             }
@@ -246,13 +279,13 @@ private fun FontPicker(current: String, onPick: (String) -> Unit) {
                 "O rápido escritor contou à jovem cigana a história do farol.",
                 fontFamily = LocalFonts.current.book,
                 style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = LocalPalette.current.muted,
             )
         }
         Box {
-            OutlinedButton(onClick = { open = true }) { Text(current.ifBlank { "Padrão" }) }
+            OutlinedButton(onClick = { open = true }) { Text(current.ifBlank { "$EMBEDDED_BOOK_FONT (padrão)" }) }
             DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-                DropdownMenuItem(text = { Text("Padrão") }, onClick = { open = false; onPick("") })
+                DropdownMenuItem(text = { Text("$EMBEDDED_BOOK_FONT (padrão, vem com o Escriba)") }, onClick = { open = false; onPick("") })
                 fonts.forEach { name ->
                     val family = remember(name) { systemFontFamily(listOf(name)) }
                     DropdownMenuItem(text = { Text(name, fontFamily = family) }, onClick = { open = false; onPick(name) })

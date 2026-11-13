@@ -73,6 +73,8 @@ class AcervoScreenTest {
                 shot("acervo-universo.png", onRoot().captureToImage().toAwtImage())
 
                 // Trazer fichas de outro livro para este universo.
+                onNodeWithContentDescription("Mais ações do universo").performClick()
+                waitForIdle()
                 onNodeWithText("Trazer fichas").performClick()
                 waitForIdle()
                 shot("acervo-trazer.png", onAllNodes(isRoot()).onLast().captureToImage().toAwtImage())
@@ -86,6 +88,8 @@ class AcervoScreenTest {
                 waitForIdle()
                 runOnIdle { c.closeAcervoUniverse() }
                 assertNull(c.acervo)
+                onNodeWithContentDescription("Mais ações do universo").performClick()
+                waitForIdle()
                 onNodeWithText("Unificar livros").performClick()
                 waitForIdle()
                 onNodeWithText("A Travessia — Livro Dois").performClick()
