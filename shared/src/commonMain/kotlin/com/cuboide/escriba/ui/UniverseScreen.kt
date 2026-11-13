@@ -40,6 +40,8 @@ import androidx.compose.material.icons.outlined.FormatItalic
 import androidx.compose.material.icons.outlined.FormatListBulleted
 import androidx.compose.material.icons.outlined.FormatQuote
 import androidx.compose.material.icons.outlined.Groups
+import androidx.compose.material.icons.outlined.Inventory2
+import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.LockOpen
 import androidx.compose.material.icons.outlined.Person
@@ -127,11 +129,18 @@ val EntryKind.icon: ImageVector
 @Composable
 fun UniverseScreen(c: EscribaController) {
     val book = c.book ?: return
+    if (c.universeTool == UniverseTool.Acervo && c.acervo == null) {
+        AcervoScreen(c)
+        return
+    }
     var kind by remember { mutableStateOf(EntryKind.Personagem) }
     var filter by remember { mutableStateOf("") }
     var selectedId by remember { mutableStateOf<String?>(null) }
     var showTrash by remember { mutableStateOf(false) }
-    val all = book.universe.entries
+    var showBring by remember { mutableStateOf(false) }
+    var showUnify by remember { mutableStateOf(false) }
+    val acervo = c.acervo
+    val all = c.universeEntries
     // Pedido vindo do mapa de enredo ou do Manuscrito: mostra a ficha e a aba do tipo dela.
     LaunchedEffect(c.universeFocus) {
         val id = c.universeFocus ?: return@LaunchedEffect
@@ -143,39 +152,61 @@ fun UniverseScreen(c: EscribaController) {
     val trash = c.entryTrash
 
     SectionPage(
-        title = "Universo",
-        subtitle = "${all.size} ficha(s): personagens, locais, grupos e lore do livro",
+        title = acervo?.meta?.name ?: "Universo",
+        subtitle = when {
+            acervo?.meta?.saga == true -> "Universo da saga, no Acervo · ${all.size} ficha(s) · muda em todos os ${acervo.meta.bookPaths.size} livros"
+            acervo != null -> "Universo do Acervo · ${all.size} ficha(s), fora de qualquer livro"
+            book.manifest.sagaId != null -> "${all.size} ficha(s) · saga “${book.manifest.sagaName}”: mudar uma ficha muda nos outros livros"
+            else -> "${all.size} ficha(s): personagens, locais, grupos e lore do livro"
+        },
         actions = {
+            if (acervo != null) {
+                TextButton(onClick = { c.showAcervo() }) { Text("← Universos do Acervo") }
+            } else {
+                TextButton(onClick = { c.showAcervo() }) {
+                    Icon(Icons.Outlined.Inventory2, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Acervo")
+                }
+                TextButton(onClick = { c.refreshLibrary(); showUnify = true }) {
+                    Icon(Icons.Outlined.Link, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (book.manifest.sagaId != null) "Saga" else "Unificar livros")
+                }
+            }
+            TextButton(onClick = { c.refreshLibrary(); showBring = true }) { Text("Trazer fichas") }
             TextButton(onClick = { showTrash = true }) {
                 Icon(Icons.Outlined.DeleteOutline, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
                 Text("Lixeira (${trash.size})")
             }
-            if (c.universeTool == UniverseTool.Fichas) {
-                Button(onClick = { filter = ""; selectedId = c.createEntry(kind).id }) { Text("Nova ficha de ${kind.label.lowercase()}") }
+            if (c.universeTool == UniverseTool.Fichas || acervo != null) {
+                Button(onClick = { filter = ""; c.universeTool = UniverseTool.Fichas; selectedId = c.createEntry(kind).id }) { Text("Nova ficha de ${kind.label.lowercase()}") }
             }
         },
     ) {
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             EntryKind.entries.forEach { k ->
                 FilterChip(
-                    selected = c.universeTool == UniverseTool.Fichas && kind == k,
+                    selected = (c.universeTool == UniverseTool.Fichas || acervo != null) && kind == k,
                     onClick = { kind = k; c.universeTool = UniverseTool.Fichas },
                     leadingIcon = { Icon(k.icon, null, Modifier.size(18.dp)) },
                     label = { Text("${k.plural}  ${all.count { it.kind == k }}") },
                 )
             }
-            // Ferramentas do mundo que chegam nas próximas etapas.
-            FilterChip(
-                selected = c.universeTool == UniverseTool.Calendario,
-                onClick = { c.universeTool = UniverseTool.Calendario },
-                leadingIcon = { Icon(Icons.Outlined.CalendarMonth, null, Modifier.size(18.dp)) },
-                label = { Text("Calendário") },
-            )
-            FilterChip(false, onClick = {}, enabled = false, leadingIcon = { Icon(Icons.Outlined.Translate, null, Modifier.size(18.dp)) }, label = { Text("Idiomas · em breve") })
+            // Calendário e idiomas são do livro; os universos do Acervo só têm fichas.
+            if (acervo == null) {
+                FilterChip(
+                    selected = c.universeTool == UniverseTool.Calendario,
+                    onClick = { c.universeTool = UniverseTool.Calendario },
+                    leadingIcon = { Icon(Icons.Outlined.CalendarMonth, null, Modifier.size(18.dp)) },
+                    label = { Text("Calendário") },
+                )
+                FilterChip(false, onClick = {}, enabled = false, leadingIcon = { Icon(Icons.Outlined.Translate, null, Modifier.size(18.dp)) }, label = { Text("Idiomas · em breve") })
+            }
         }
         Spacer(Modifier.height(16.dp))
-        if (c.universeTool == UniverseTool.Calendario) {
+        if (c.universeTool == UniverseTool.Calendario && acervo == null) {
             CalendarScreen(c)
             return@SectionPage
         }
@@ -210,6 +241,8 @@ fun UniverseScreen(c: EscribaController) {
         }
     }
     if (showTrash) EntryTrashDialog(c) { showTrash = false }
+    if (showBring) BringEntriesDialog(c) { showBring = false }
+    if (showUnify) UnifyBooksDialog(c) { showUnify = false }
 }
 
 @Composable
@@ -235,7 +268,7 @@ private fun EntryRow(c: EscribaController, entry: UniverseEntry, selected: Boole
 /** Retrato em círculo (com o enquadramento escolhido) ou, sem retrato, a inicial sobre uma cor do nome. */
 @Composable
 fun EntryAvatar(c: EscribaController, entry: UniverseEntry, sizeDp: Int) {
-    val image = rememberBoardImage(c, entry.portrait?.path)
+    val image = rememberEntryImage(c, entry.portrait?.path)
     if (entry.portrait != null && image != null) {
         FramedImage(image, entry.portrait.frame, Modifier.size(sizeDp.dp).clip(CircleShape))
     } else {
@@ -260,7 +293,7 @@ fun Avatar(name: String, sizeDp: Int) {
 private fun EntrySheet(c: EscribaController, entry: UniverseEntry, onDeleted: () -> Unit) {
     val schema = entry.schema
     /** Versão mais recente da ficha: cada campo altera só a sua parte, sem perder o que outro acabou de mudar. */
-    fun latest(): UniverseEntry = c.book?.universe?.entries?.firstOrNull { it.id == entry.id } ?: entry
+    fun latest(): UniverseEntry = c.universeEntries.firstOrNull { it.id == entry.id } ?: entry
     fun edit(transform: (UniverseEntry) -> UniverseEntry) = c.updateEntry(transform(latest()))
 
     var openBlock by remember(entry.id) { mutableStateOf<String?>(null) } // key ou id do bloco aberto no editor
@@ -282,7 +315,7 @@ private fun EntrySheet(c: EscribaController, entry: UniverseEntry, onDeleted: ()
                         }
                         AttributesCard(c, entry, ::edit)
                         SealCheckCard(c, entry)
-                        MentionsCard(c, entry)
+                        if (c.acervo == null) MentionsCard(c, entry)
                     }
                     // Coluna da direita: nome, subtítulo, blocos e seções próprias.
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -332,7 +365,7 @@ private fun EntrySheet(c: EscribaController, entry: UniverseEntry, onDeleted: ()
 /** Faixa com as outras fichas do mesmo tipo, para pular de uma para outra sem voltar à lista. */
 @Composable
 private fun SiblingStrip(c: EscribaController, entry: UniverseEntry) {
-    val siblings = c.book?.universe?.entries.orEmpty().filter { it.kind == entry.kind }.sortedBy { it.name.lowercase() }
+    val siblings = c.universeEntries.filter { it.kind == entry.kind }.sortedBy { it.name.lowercase() }
     if (siblings.size < 2) return
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         siblings.forEach { e ->
@@ -385,7 +418,7 @@ private fun PlainField(
 private fun PortraitPane(c: EscribaController, entry: UniverseEntry) {
     val scheme = MaterialTheme.colorScheme
     val portrait = entry.portrait
-    val image = rememberBoardImage(c, portrait?.path)
+    val image = rememberEntryImage(c, portrait?.path)
     var framing by remember(entry.id) { mutableStateOf(false) }
     var box by remember { mutableStateOf(IntSize.Zero) }
     val frame by rememberUpdatedState(portrait?.frame ?: ImageFrame())
@@ -479,7 +512,7 @@ private fun Gallery(c: EscribaController, entry: UniverseEntry) {
     val scheme = MaterialTheme.colorScheme
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         entry.gallery.forEach { img ->
-            val bitmap = rememberBoardImage(c, img.path)
+            val bitmap = rememberEntryImage(c, img.path)
             Box(Modifier.size(64.dp).clip(RoundedCornerShape(10.dp)).background(scheme.surfaceContainerHighest)) {
                 FramedImage(bitmap, ImageFrame(), Modifier.fillMaxSize())
                 Row(Modifier.align(Alignment.TopEnd)) {

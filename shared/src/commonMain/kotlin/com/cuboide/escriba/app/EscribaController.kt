@@ -54,6 +54,15 @@ import com.cuboide.escriba.core.calendar.WorldCalendar
 import com.cuboide.escriba.core.calendar.WorldDate
 import com.cuboide.escriba.core.calendar.parseDate
 import com.cuboide.escriba.core.universe.BookCheck
+import com.cuboide.escriba.core.universe.BookUniverse
+import com.cuboide.escriba.core.universe.copyEntries
+import com.cuboide.escriba.core.universe.imagePaths
+import com.cuboide.escriba.core.universe.mergeSaga
+import com.cuboide.escriba.core.storage.AcervoMeta
+import com.cuboide.escriba.core.storage.AcervoRepository
+import com.cuboide.escriba.core.storage.AcervoSummary
+import com.cuboide.escriba.core.storage.EscribaJson
+import com.cuboide.escriba.core.storage.safeFileName
 import com.cuboide.escriba.core.universe.ChapterText
 import com.cuboide.escriba.core.universe.FactKind
 import com.cuboide.escriba.core.universe.SealStatus
@@ -147,7 +156,9 @@ class EscribaServices(
     val newId: () -> String,
     val dayKey: (Long) -> String,
 ) {
+    val dataDir: String = dataDir
     val books = BookRepository(fs, libraryDir, now, newId)
+    val acervo = AcervoRepository(fs, books, now, newId)
     val snapshots = SnapshotStore(fs, now, newId)
     val trash = TrashStore(fs, joinPath(dataDir, "lixeira"), books, now, newId)
     val productivity = ProductivityStore(fs, joinPath(dataDir, "produtividade.json"))
@@ -172,7 +183,13 @@ enum class Section(val label: String, val needsBook: Boolean) {
 enum class SaveState { Salvo, Pendente, Salvando }
 
 /** O que o Universo está mostrando: as fichas ou uma ferramenta do mundo. */
-enum class UniverseTool { Fichas, Calendario }
+enum class UniverseTool { Fichas, Calendario, Acervo }
+
+/** Universo do Acervo aberto para edição. */
+class OpenAcervo(val path: String, meta: AcervoMeta, universe: Universe) {
+    var meta by mutableStateOf(meta)
+    var universe by mutableStateOf(universe)
+}
 
 class OpenBook(
     val path: String,
@@ -214,6 +231,8 @@ class EscribaController(private val services: EscribaServices, private val scope
     /** Ficha que o Universo deve abrir ao ser mostrado (vem do chip de um cartão do mapa). */
     var universeFocus by mutableStateOf<String?>(null); private set
     var universeTool by mutableStateOf(UniverseTool.Fichas)
+    /** Universo do Acervo aberto (as fichas editadas são as dele); `null` = o universo do livro. */
+    var acervo by mutableStateOf<OpenAcervo?>(null); private set
 
     // Localizar/substituir no capítulo atual
     var findVisible by mutableStateOf(false)
@@ -327,7 +346,12 @@ class EscribaController(private val services: EscribaServices, private val scope
         if (target.needsBook && book == null) return
         if (section == Section.Manuscrito && target != Section.Manuscrito) flushSave()
         if (section == Section.Enredo && target != Section.Enredo) map.flush()
-        if (section == Section.Universo && target != Section.Universo) flushEntrySave()
+        if (section == Section.Universo && target != Section.Universo) {
+            flushEntrySave()
+            // O resto do app (inspetor, Enredo) mostra as fichas do livro, não as do Acervo.
+            closeAcervoUniverse()
+            if (universeTool == UniverseTool.Acervo) universeTool = UniverseTool.Fichas
+        }
         if (target != Section.Manuscrito) focusMode = false
         section = target
         if (target == Section.Diagramacao) requestLayout(0)
@@ -336,6 +360,7 @@ class EscribaController(private val services: EscribaServices, private val scope
     fun closeBook() {
         flushSave()
         flushEntrySave()
+        acervo = null
         mentionIndex.clear()
         map.flush()
         map.reset()
@@ -879,26 +904,50 @@ class EscribaController(private val services: EscribaServices, private val scope
         snapshots = services.snapshots.list(b.path, snapshot.chapterId)
     }
 
-    // ---------- Universo ----------
+    // ---------- Universo (do livro ou do Acervo) ----------
+
+    /** Fichas do universo em uso: o do Acervo aberto ou o do livro. */
+    val universeEntries: List<UniverseEntry> get() = hostUniverse?.entries.orEmpty()
+
+    /** Pasta do universo em uso (livro ou Acervo). */
+    val universeHostPath: String? get() = acervo?.path ?: book?.path
+
+    private val hostTitle: String get() = acervo?.meta?.name ?: book?.manifest?.title.orEmpty()
+
+    private var hostUniverse: Universe?
+        get() = acervo?.universe ?: book?.universe
+        set(value) {
+            if (value == null) return
+            val a = acervo
+            if (a != null) a.universe = value else book?.universe = value
+        }
+
+    /** Grava o universo em uso e, se ele é de uma saga, a cópia de cada livro dela. */
+    private fun persistUniverse() {
+        val path = universeHostPath ?: return
+        val universe = hostUniverse ?: return
+        services.books.saveUniverse(path, universe)
+        mirrorSaga(path, universe)
+    }
 
     /** Grava a ficha na hora (criação, imagens, botões). */
     fun saveEntry(entry: UniverseEntry) {
-        val b = book ?: return
-        putEntry(b, entry)
+        if (hostUniverse == null) return
+        putEntry(entry)
         entrySaveJob?.cancel()
         entrySaveJob = null
-        services.books.saveUniverse(b.path, b.universe)
+        persistUniverse()
     }
 
     /** Atualiza a ficha na tela e grava daqui a pouco: digitação não reescreve o `universe.json` a cada tecla. */
     fun updateEntry(entry: UniverseEntry) {
-        val b = book ?: return
-        putEntry(b, entry)
+        if (hostUniverse == null) return
+        putEntry(entry)
         entrySaveJob?.cancel()
         entrySaveJob = scope.launch {
             delay(ENTRY_SAVE_DELAY_MS)
             entrySaveJob = null
-            services.books.saveUniverse(b.path, b.universe)
+            persistUniverse()
         }
     }
 
@@ -907,15 +956,16 @@ class EscribaController(private val services: EscribaServices, private val scope
         val job = entrySaveJob ?: return
         job.cancel()
         entrySaveJob = null
-        book?.let { services.books.saveUniverse(it.path, it.universe) }
+        persistUniverse()
     }
 
-    private fun putEntry(b: OpenBook, entry: UniverseEntry) {
-        scheduleCheck()
+    private fun putEntry(entry: UniverseEntry) {
+        val universe = hostUniverse ?: return
+        if (acervo == null) scheduleCheck()
         val stamped = entry.copy(modifiedAt = services.now())
-        val entries = b.universe.entries
+        val entries = universe.entries
         val updated = if (entries.any { it.id == entry.id }) entries.map { if (it.id == entry.id) stamped else it } else entries + stamped
-        b.universe = b.universe.copy(entries = updated, schemaVersion = UNIVERSE_SCHEMA_VERSION)
+        hostUniverse = universe.copy(entries = updated, schemaVersion = UNIVERSE_SCHEMA_VERSION)
     }
 
     fun newEntry(kind: EntryKind): UniverseEntry = UniverseEntry(services.newId(), kind, "")
@@ -965,25 +1015,29 @@ class EscribaController(private val services: EscribaServices, private val scope
     }
 
     fun trashEntry(entry: UniverseEntry) {
-        val b = book ?: return
+        val path = universeHostPath ?: return
+        val universe = hostUniverse ?: return
         flushEntrySave()
-        services.trash.trashEntry(b.path, b.manifest.title, entry)
-        b.universe = b.universe.copy(entries = b.universe.entries.filterNot { it.id == entry.id })
-        services.books.saveUniverse(b.path, b.universe)
+        services.trash.trashEntry(path, hostTitle, entry)
+        hostUniverse = universe.copy(entries = universe.entries.filterNot { it.id == entry.id })
+        persistUniverse()
         trashItems = services.trash.list()
         message = "Ficha “${entry.name.ifBlank { "sem nome" }}” foi para a lixeira."
     }
 
-    /** Fichas deste livro que estão na lixeira. */
+    /** Fichas do universo em uso que estão na lixeira. */
     val entryTrash: List<TrashItem>
-        get() = book?.path?.let { path -> trashItems.filter { it.kind == TrashKind.Ficha && it.bookPath == path } }.orEmpty()
+        get() = universeHostPath?.let { path -> trashItems.filter { it.kind == TrashKind.Ficha && it.bookPath == path } }.orEmpty()
+
+    /** Imagem do universo em uso (retratos e galerias). */
+    fun readUniverseAsset(path: String): ByteArray? = universeHostPath?.let { services.books.readAsset(it, path) }
 
     /**
-     * Escolhe uma imagem, copia para `assets/` do livro e devolve o caminho relativo e o tamanho em pixels
-     * (`null` se a pessoa desistir ou a imagem não puder ser lida).
+     * Escolhe uma imagem, copia para `assets/` do livro (ou do universo do Acervo aberto) e devolve o caminho
+     * relativo e o tamanho em pixels (`null` se a pessoa desistir ou a imagem não puder ser lida).
      */
-    suspend fun pickAndImportImage(title: String, extensions: List<String> = IMAGE_EXTENSIONS): Pair<String, Pair<Int, Int>>? {
-        val b = book ?: return null
+    suspend fun pickAndImportImage(title: String, extensions: List<String> = IMAGE_EXTENSIONS, intoUniverse: Boolean = false): Pair<String, Pair<Int, Int>>? {
+        val target = (if (intoUniverse) universeHostPath else book?.path) ?: return null
         val source = chooseOpenFile(title, extensions) ?: return null
         val bytes = services.fs.readBytes(source)
         val size = bytes?.let { imagePixelSize(it) }
@@ -991,20 +1045,20 @@ class EscribaController(private val services: EscribaServices, private val scope
             message = "Não foi possível ler a imagem."
             return null
         }
-        return services.books.importAsset(b.path, bytes, source.substringAfterLast('.', "png")) to size
+        return services.books.importAsset(target, bytes, source.substringAfterLast('.', "png")) to size
     }
 
     /** Escolhe uma imagem para a ficha: vira o retrato se ela ainda não tiver um, senão entra na galeria. */
     fun addEntryImage(entryId: String, asPortrait: Boolean) {
         scope.launch {
-            val (path, _) = pickAndImportImage(if (asPortrait) "Retrato" else "Imagem da ficha") ?: return@launch
+            val (path, _) = pickAndImportImage(if (asPortrait) "Retrato" else "Imagem da ficha", intoUniverse = true) ?: return@launch
             addEntryImagePath(entryId, path, asPortrait)
         }
     }
 
-    /** Põe na ficha uma imagem que já está em `assets/` do livro. */
+    /** Põe na ficha uma imagem que já está em `assets/` do universo em uso. */
     fun addEntryImagePath(entryId: String, path: String, asPortrait: Boolean) {
-        val entry = book?.universe?.entries?.firstOrNull { it.id == entryId } ?: return
+        val entry = universeEntries.firstOrNull { it.id == entryId } ?: return
         val image = EntryImage(path)
         val updated = when {
             asPortrait && entry.portrait != null -> entry.copy(portrait = image, gallery = listOf(entry.portrait) + entry.gallery)
@@ -1016,7 +1070,7 @@ class EscribaController(private val services: EscribaServices, private val scope
 
     /** Troca o retrato por uma imagem da galeria (o retrato antigo volta para a galeria). */
     fun makePortrait(entryId: String, path: String) {
-        val entry = book?.universe?.entries?.firstOrNull { it.id == entryId } ?: return
+        val entry = universeEntries.firstOrNull { it.id == entryId } ?: return
         val chosen = entry.gallery.firstOrNull { it.path == path } ?: return
         val rest = entry.gallery.filterNot { it.path == path }
         saveEntry(entry.copy(portrait = chosen, gallery = listOfNotNull(entry.portrait) + rest))
@@ -1024,7 +1078,7 @@ class EscribaController(private val services: EscribaServices, private val scope
 
     /** Tira a imagem da ficha (o arquivo fica no livro: pode estar em uso em outro lugar). */
     fun removeEntryImage(entryId: String, path: String) {
-        val entry = book?.universe?.entries?.firstOrNull { it.id == entryId } ?: return
+        val entry = universeEntries.firstOrNull { it.id == entryId } ?: return
         saveEntry(
             if (entry.portrait?.path == path) entry.copy(portrait = null)
             else entry.copy(gallery = entry.gallery.filterNot { it.path == path }),
@@ -1032,9 +1086,183 @@ class EscribaController(private val services: EscribaServices, private val scope
     }
 
     fun setPortraitFrame(entryId: String, frame: ImageFrame) {
-        val entry = book?.universe?.entries?.firstOrNull { it.id == entryId } ?: return
+        val entry = universeEntries.firstOrNull { it.id == entryId } ?: return
         val portrait = entry.portrait ?: return
         updateEntry(entry.copy(portrait = portrait.copy(frame = frame)))
+    }
+
+    // ---------- Acervo ----------
+
+    /** Universos do Acervo (lidos quando a lista é mostrada). */
+    var acervoList by mutableStateOf<List<AcervoSummary>>(emptyList()); private set
+
+    fun refreshAcervo() {
+        acervoList = services.acervo.list()
+    }
+
+    /** Mostra a lista de universos do Acervo. */
+    fun showAcervo() {
+        closeAcervoUniverse()
+        refreshAcervo()
+        universeTool = UniverseTool.Acervo
+        goTo(Section.Universo)
+    }
+
+    fun createAcervoUniverse(name: String, description: String): AcervoSummary {
+        val created = services.acervo.create(name, description)
+        refreshAcervo()
+        return created
+    }
+
+    /** Copia todas as fichas do livro aberto (com imagens) para um universo novo do Acervo. */
+    fun importBookToAcervo(): AcervoSummary? {
+        val b = book ?: return null
+        flushEntrySave()
+        val created = services.acervo.create("${b.manifest.title} — universo", sourceTitle = b.manifest.title)
+        val copies = copyEntries(b.universe.entries, { services.books.readAsset(b.path, it) }, { bytes, ext -> services.books.importAsset(created.path, bytes, ext) }, services.newId)
+        services.books.saveUniverse(created.path, Universe(copies, UNIVERSE_SCHEMA_VERSION))
+        refreshAcervo()
+        message = "Universo do livro copiado para o Acervo (${copies.size} ficha(s))."
+        return created
+    }
+
+    /** Abre um universo do Acervo: as fichas mostradas e editadas passam a ser as dele. */
+    fun openAcervoUniverse(path: String) {
+        flushEntrySave()
+        val meta = services.acervo.loadMeta(path) ?: return
+        acervo = OpenAcervo(path, meta, services.books.loadUniverse(path))
+        universeTool = UniverseTool.Fichas
+        goTo(Section.Universo)
+    }
+
+    /** Volta para o universo do livro. */
+    fun closeAcervoUniverse() {
+        val a = acervo ?: return
+        flushEntrySave()
+        acervo = null
+        // Editar a saga muda a cópia do livro aberto: relê.
+        if (a.meta.saga) book?.let { it.universe = services.books.loadUniverse(it.path) }
+    }
+
+    /** Apaga um universo do Acervo (vai para a lixeira inteiro). */
+    fun trashAcervoUniverse(summary: AcervoSummary) {
+        if (acervo?.path == summary.path) closeAcervoUniverse()
+        services.trash.trashFolder(summary.path, summary.meta.name, TrashKind.Universo)
+        trashItems = services.trash.list()
+        refreshAcervo()
+        message = "Universo “${summary.meta.name}” foi para a lixeira."
+    }
+
+    /** De onde dá para trazer fichas: os outros livros da biblioteca e os universos do Acervo. */
+    fun entrySources(): List<Pair<String, String>> {
+        val here = universeHostPath
+        val books = library.filter { it.path != here }.map { it.path to "Livro: ${it.manifest.title}" }
+        val universes = services.acervo.list().filter { it.path != here }.map { it.path to "Acervo: ${it.meta.name}" }
+        return books + universes
+    }
+
+    fun entriesAt(path: String): List<UniverseEntry> = services.books.loadUniverse(path).entries
+
+    /** Copia as fichas [ids] de [fromPath] (livro ou Acervo) para o universo em uso, com as imagens. */
+    fun bringEntries(fromPath: String, ids: Set<String>) {
+        val to = universeHostPath ?: return
+        val universe = hostUniverse ?: return
+        flushEntrySave()
+        val chosen = services.books.loadUniverse(fromPath).entries.filter { it.id in ids }
+        val copies = copyEntries(chosen, { services.books.readAsset(fromPath, it) }, { bytes, ext -> services.books.importAsset(to, bytes, ext) }, services.newId)
+        hostUniverse = universe.copy(entries = universe.entries + copies, schemaVersion = UNIVERSE_SCHEMA_VERSION)
+        persistUniverse()
+        message = "${copies.size} ficha(s) trazida(s)."
+    }
+
+    // ---------- Saga (livros unificados) ----------
+
+    /** Livros da biblioteca que podem entrar na saga do livro aberto. */
+    val sagaCandidates: List<BookSummary> get() = library.filter { it.path != book?.path }
+
+    /**
+     * Livros da mesma saga passam a usar as mesmas fichas. Antes de juntar, guarda uma cópia do `universe.json` de
+     * cada livro em `<dados>/backups/saga-<data>/`. Fichas repetidas (mesmo tipo e nome) viram uma só; cenas e
+     * cartões que apontavam para as fichas juntadas passam a apontar para a ficha que ficou.
+     */
+    fun unifyBooks(otherPaths: List<String>, sagaName: String) {
+        val b = book ?: return
+        flushEntrySave()
+        flushSave()
+        map.flush()
+        val existingSaga = b.manifest.sagaId?.let { services.acervo.findSaga(it) }
+        val oldMembers = existingSaga?.let { services.acervo.loadMeta(it)?.bookPaths }.orEmpty()
+        val paths = (listOf(b.path) + oldMembers + otherPaths).distinct().filter { services.fs.exists(joinPath(it, BookRepository.MANIFEST)) }
+        val members = paths.map { p ->
+            val title = if (p == b.path) b.manifest.title else services.books.loadManifest(p).title
+            BookUniverse(p, title, if (p == b.path) b.universe else services.books.loadUniverse(p))
+        }
+        // Cópia de segurança antes de mexer em qualquer livro.
+        val backup = joinPath(services.dataDir, "backups", "saga-${services.now()}")
+        members.forEach { m -> services.fs.writeText(joinPath(backup, safeFileName(m.title, "livro"), BookRepository.UNIVERSE), EscribaJson.encodeToString(Universe.serializer(), m.universe)) }
+
+        val result = mergeSaga(members, services.newId)
+        val name = sagaName.trim().ifBlank { "Saga de ${b.manifest.title}" }
+        val sagaPath = existingSaga ?: services.acervo.create(name, saga = true, bookPaths = paths).path
+        val meta = services.acervo.loadMeta(sagaPath)!!.copy(name = name, saga = true, bookPaths = paths)
+        services.acervo.saveMeta(sagaPath, meta)
+        copySagaAssets(result.universe, paths, sagaPath)
+        services.books.saveUniverse(sagaPath, result.universe)
+        for (p in paths) {
+            services.books.saveUniverse(p, result.universe)
+            val outline = services.books.loadOutline(p)
+            services.books.saveOutline(p, outline.copy(beats = outline.beats.map { beat -> beat.copy(characterIds = beat.characterIds.map { result.idMap[it] ?: it }.distinct()) }))
+            val boards = services.books.loadBoards(p)
+            services.books.saveBoards(p, boards.copy(boards = boards.boards.map { bd -> bd.copy(nodes = bd.nodes.map { n -> n.entryId?.let { id -> n.copy(entryId = result.idMap[id] ?: id) } ?: n }) }))
+            val manifest = services.books.loadManifest(p)
+            services.books.saveManifest(p, manifest.copy(sagaId = meta.id, sagaName = name))
+        }
+        reloadOpenBook()
+        b.boards = services.books.loadBoards(b.path)
+        refreshLibrary()
+        refreshAcervo()
+        message = "Saga “$name”: ${paths.size} livro(s) com as mesmas fichas" + if (result.joined > 0) " (${result.joined} ficha(s) repetida(s) juntada(s))." else "."
+    }
+
+    /** Tira o livro aberto da saga: ele fica com uma cópia das fichas, que deixam de mudar junto. */
+    fun leaveSaga() {
+        val b = book ?: return
+        val sagaId = b.manifest.sagaId ?: return
+        flushEntrySave()
+        services.acervo.findSaga(sagaId)?.let { path ->
+            services.acervo.loadMeta(path)?.let { m -> services.acervo.saveMeta(path, m.copy(bookPaths = m.bookPaths - b.path)) }
+        }
+        updateManifest { it.copy(sagaId = null, sagaName = "") }
+        message = "O livro saiu da saga. As fichas continuam nele."
+    }
+
+    /** Universo de saga em [path] (livro da saga ou o próprio universo da saga): grava nos outros livros e na saga. */
+    private fun mirrorSaga(path: String, universe: Universe) {
+        val sagaPath: String
+        val members: List<String>
+        val a = acervo
+        if (a != null && a.path == path) {
+            if (!a.meta.saga) return
+            sagaPath = a.path
+            members = a.meta.bookPaths
+        } else {
+            val sagaId = book?.takeIf { it.path == path }?.manifest?.sagaId ?: return
+            sagaPath = services.acervo.findSaga(sagaId) ?: return
+            members = services.acervo.loadMeta(sagaPath)?.bookPaths.orEmpty()
+        }
+        val targets = (members + sagaPath).filter { it != path && services.fs.exists(it) }
+        copySagaAssets(universe, listOf(path) + targets, sagaPath)
+        targets.forEach { services.books.saveUniverse(it, universe) }
+    }
+
+    /** Toda imagem usada pelas fichas passa a existir em todos os livros da saga e no universo da saga. */
+    private fun copySagaAssets(universe: Universe, paths: List<String>, sagaPath: String) {
+        val all = (paths + sagaPath).distinct()
+        for (image in universe.imagePaths()) {
+            val holder = all.firstOrNull { services.fs.exists(joinPath(it, image)) } ?: continue
+            val bytes = services.fs.readBytes(joinPath(holder, image)) ?: continue
+            all.filter { !services.fs.exists(joinPath(it, image)) }.forEach { services.fs.writeBytes(joinPath(it, image), bytes) }
+        }
     }
 
     // ---------- Selo e contradições ----------
@@ -1076,7 +1304,7 @@ class EscribaController(private val services: EscribaServices, private val scope
 
     /** Liga ou desliga o selo de um atributo da ficha. */
     fun toggleSeal(entryId: String, key: String) {
-        val entry = book?.universe?.entries?.firstOrNull { it.id == entryId } ?: return
+        val entry = universeEntries.firstOrNull { it.id == entryId } ?: return
         val existing = entry.attributes.firstOrNull { it.key == key }
         val updated = if (existing != null) entry.copy(attributes = entry.attributes.map { if (it.key == key) it.copy(sealed = !it.sealed) else it })
         else entry.copy(attributes = entry.attributes + EntryAttribute(services.newId(), key, entry.schema.attribute(key)?.label.orEmpty(), "", sealed = true))
@@ -1088,7 +1316,7 @@ class EscribaController(private val services: EscribaServices, private val scope
      * que o autor escolheu ficar com a descrição; as outras em conflito ficam como estão.
      */
     fun sealFromDescription(entryId: String, replace: Set<FactKind> = emptySet()) {
-        val entry = book?.universe?.entries?.firstOrNull { it.id == entryId } ?: return
+        val entry = universeEntries.firstOrNull { it.id == entryId } ?: return
         var updated = entry
         for (s in sealSuggestions(entry)) {
             if (s.status == SealStatus.Conflito && s.kind !in replace) continue
@@ -1148,10 +1376,13 @@ class EscribaController(private val services: EscribaServices, private val scope
 
     /** Abre a ficha no Universo (pelo chip de um cartão do mapa). */
     fun openUniverseEntry(id: String) {
-        if (book?.universe?.entries?.none { it.id == id } != false) {
+        // Dentro de um universo do Acervo, pular para outra ficha dele não volta para o livro.
+        val inAcervo = acervo?.universe?.entries?.any { it.id == id } == true
+        if (!inAcervo && book?.universe?.entries?.none { it.id == id } != false) {
             message = "A ficha vinculada não existe mais."
             return
         }
+        if (!inAcervo) closeAcervoUniverse()
         universeFocus = id
         universeTool = UniverseTool.Fichas
         goTo(Section.Universo)

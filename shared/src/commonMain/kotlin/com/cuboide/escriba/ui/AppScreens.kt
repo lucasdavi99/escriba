@@ -28,6 +28,7 @@ import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Timeline
+import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -70,6 +71,7 @@ private val TrashKind.icon
         TrashKind.Capitulo -> Icons.Outlined.Description
         TrashKind.Ficha -> Icons.Outlined.Person
         TrashKind.Cena -> Icons.Outlined.Timeline
+        TrashKind.Universo -> Icons.Outlined.Public
     }
 
 @Composable

@@ -17,6 +17,9 @@ data class BookManifest(
     val chapters: List<ChapterMeta> = emptyList(),
     val dailyGoal: Int = 1000,
     val bookGoal: Int = 50_000,
+    /** Saga do livro: as fichas são as mesmas dos outros livros dela (universo de saga no Acervo). */
+    val sagaId: String? = null,
+    val sagaName: String = "",
 ) {
     val totalWords: Int get() = chapters.sumOf { it.words }
 }

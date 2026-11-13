@@ -475,5 +475,22 @@ Calendário e Idiomas aparecem como abas desativadas até as fases 2 e 5.
   - o inspetor mostra "neste capítulo" e "nos outros";
   - há um "Relatório do livro inteiro" com fatos selados, contradições, relações, fichas a selar e idades.
 
+**Situação (12/11/2026, mais tarde):** Fase 4 entregue: **U8** e **U9**.
+- **Acervo:** universos fora de qualquer livro, em `<biblioteca>/Acervo/<nome>.universo/` (com `acervo.json`, `universe.json` e `assets/`). Tem:
+  - "Novo universo" e "Importar do livro atual", que copia as fichas com as imagens;
+  - a mesma ficha completa para editar (sem calendário nem idiomas, que são do livro);
+  - lixeira de fichas;
+  - apagar o universo inteiro, que vai para a lixeira e pode ser restaurado.
+- **Trazer fichas**, no livro e no Acervo: escolhe a origem (outro livro ou universo do Acervo), mostra as fichas por tipo com busca e o aviso "já há uma ficha com este nome aqui", e copia com as imagens.
+- **Unificar livros**, a saga:
+  - **Antes de juntar:** guarda uma cópia do `universe.json` de cada livro em `<dados>/backups/saga-<data>/`.
+  - **A junção:** fichas do mesmo tipo e nome viram uma só.
+    - A base é a do livro aberto e o que falta vem dos outros.
+    - Apelidos, etiquetas e imagens se somam.
+    - O que difere vai para uma seção "Em ‹livro›".
+    - Cenas e cartões passam a apontar para a ficha que ficou.
+  - **Depois:** o universo da saga fica no Acervo. Mudar uma ficha em qualquer livro, ou no universo da saga, grava em todos, e as imagens são copiadas.
+  - **Saída:** "Tirar este livro da saga" deixa uma cópia independente das fichas no livro.
+
 Ordem sugerida: **U1, U3, U4, U5, U2** (a ficha fica no nível do Autor); depois **U10 e U13** (calendário útil para a
 história); depois **U8 e U6**; e, por último, **U11, U12, U9 e U14–U16** (os mais caros e menos essenciais).

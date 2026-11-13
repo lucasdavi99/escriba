@@ -8,7 +8,7 @@ import com.cuboide.escriba.core.outline.insertAt
 import kotlinx.serialization.Serializable
 
 @Serializable
-enum class TrashKind(val label: String) { Livro("Livro"), Capitulo("Capítulo"), Ficha("Ficha"), Cena("Cena") }
+enum class TrashKind(val label: String) { Livro("Livro"), Capitulo("Capítulo"), Ficha("Ficha"), Cena("Cena"), Universo("Universo") }
 
 @Serializable
 data class TrashItem(
@@ -62,6 +62,16 @@ class TrashStore(
         return item
     }
 
+    /** Pasta inteira para a lixeira (universo do Acervo). Volta para o mesmo lugar, ou com outro nome se ele foi ocupado. */
+    fun trashFolder(path: String, title: String, kind: TrashKind): TrashItem {
+        val item = TrashItem(newId(), kind, title, now(), bookPath = path, bookTitle = title)
+        val dir = itemDir(item.id)
+        fs.mkdirs(dir)
+        fs.move(path, joinPath(dir, FOLDER))
+        writeItem(item)
+        return item
+    }
+
     fun trashChapter(bookPath: String, bookTitle: String, chapter: ChapterMeta, body: String, index: Int? = null): TrashItem {
         val item = TrashItem(
             newId(), TrashKind.Capitulo, chapter.title, now(),
@@ -111,9 +121,18 @@ class TrashStore(
                 books.saveManifest(bookPath, manifest.copy(chapters = chapters, modifiedAt = now()))
                 RestoreOutcome.Restored(bookPath)
             }
+            TrashKind.Universo -> {
+                val original = item.bookPath ?: return RestoreOutcome.OriginMissing(item.title)
+                var target = original
+                var n = 2
+                while (fs.exists(target)) target = original.removeSuffix(AcervoRepository.EXTENSION) + " ($n)" + AcervoRepository.EXTENSION.also { n++ }
+                fs.move(joinPath(itemDir(item.id), FOLDER), target)
+                RestoreOutcome.Restored(target)
+            }
             TrashKind.Ficha -> {
                 val bookPath = item.bookPath
-                if (bookPath == null || !fs.exists(joinPath(bookPath, BookRepository.MANIFEST))) {
+                // A ficha pode ser de um livro ou de um universo do Acervo.
+                if (bookPath == null || (!fs.exists(joinPath(bookPath, BookRepository.MANIFEST)) && !fs.exists(joinPath(bookPath, AcervoRepository.META)))) {
                     return RestoreOutcome.OriginMissing(item.bookTitle)
                 }
                 val universe = books.loadUniverse(bookPath)
@@ -170,6 +189,8 @@ class TrashStore(
         expired.forEach { deleteForever(it) }
         return expired.size
     }
+
+    private val FOLDER = "pasta"
 
     private fun itemDir(id: String) = joinPath(trashDir, safeFileName(id, "item"))
 

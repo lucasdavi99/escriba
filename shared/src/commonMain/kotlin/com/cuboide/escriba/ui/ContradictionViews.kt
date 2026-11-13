@@ -178,7 +178,7 @@ private fun ReportTitle(text: String) {
 fun SealCheckCard(c: EscribaController, entry: UniverseEntry) {
     val scheme = MaterialTheme.colorScheme
     val suggestions = remember(entry) { sealSuggestions(entry) }
-    val relations = remember(c.book?.universe) { relationIssues(c.book?.universe?.entries.orEmpty()).filter { it.entryId == entry.id } }
+    val relations = remember(c.universeEntries) { relationIssues(c.universeEntries).filter { it.entryId == entry.id } }
     val contradictions = c.bookCheck?.contradictions.orEmpty().filter { it.entryId == entry.id }
     if (suggestions.isEmpty() && relations.isEmpty() && contradictions.isEmpty()) return
     var replace by remember(entry.id) { mutableStateOf(emptySet<FactKind>()) }
