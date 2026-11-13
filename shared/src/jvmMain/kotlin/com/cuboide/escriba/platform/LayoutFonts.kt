@@ -52,6 +52,10 @@ internal object FontCatalog {
 
     val fallback: FontFace? by lazy { fallbackFamilies.firstNotNullOfOrNull { face(FontSpec(it)) } }
 
+    /** Fonte da escrita inventada do livro aberto (ver `registerScriptFont`). */
+    @Volatile
+    var script: FontFace? = null
+
     private fun fontDirs(): List<File> {
         val home = System.getProperty("user.home")
         val os = System.getProperty("os.name").lowercase()
@@ -90,7 +94,9 @@ internal object FontCatalog {
 
 /** Divide o texto em trechos pela cobertura da fonte: o que ela não desenha vai para a fonte reserva. */
 internal fun coverageRuns(text: String, face: FontFace): List<Pair<String, FontFace>> {
-    if (face.awt.canDisplayUpTo(text) == -1) return listOf(text to face)
+    val script = FontCatalog.script
+    val hasScript = script != null && text.any { it.code in 0xE000..0xF8FF }
+    if (!hasScript && face.awt.canDisplayUpTo(text) == -1) return listOf(text to face)
     val fallback = FontCatalog.fallback
     val out = ArrayList<Pair<String, FontFace>>()
     val sb = StringBuilder()
@@ -100,6 +106,8 @@ internal fun coverageRuns(text: String, face: FontFace): List<Pair<String, FontF
         val cp = text.codePointAt(i)
         val chars = String(Character.toChars(cp))
         val target = when {
+            // A escrita inventada sempre vence: outras fontes podem ter algo na área de uso privado.
+            script != null && cp in 0xE000..0xF8FF && script.awt.canDisplay(cp) -> script
             face.awt.canDisplay(cp) -> face
             fallback != null && fallback.awt.canDisplay(cp) -> fallback
             else -> face
@@ -118,6 +126,9 @@ internal fun coverageRuns(text: String, face: FontFace): List<Pair<String, FontF
 internal object AwtGlyphMeasurer : GlyphMeasurer {
     private val frc = FontRenderContext(null, true, true)
     private val cache = ConcurrentHashMap<Pair<FontSpec, String>, Float>()
+
+    /** A fonte da escrita mudou: medidas guardadas com ela não valem mais. */
+    fun clearCache() = cache.clear()
     private val serifDefaults = listOf("Georgia", "Times New Roman", "Cambria", "Liberation Serif", "DejaVu Serif", "Noto Serif")
 
     fun advance(text: String, face: FontFace, sizePt: Float): Float {

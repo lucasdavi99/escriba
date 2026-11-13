@@ -669,6 +669,7 @@ private fun ManuscriptEditor(c: EscribaController, deep: DeepClicks, s: AppSetti
         spacerSp = rememberParagraphSpacer(bookFont, s.editorFontSize.toFloat(), s.lineSpacing, s.paragraphSpacing),
         focusMode = c.focusMode,
         issues = c.currentIssues,
+        scriptFamily = rememberScriptFamily(c),
         issueColor = MaterialTheme.colorScheme.error,
     )
     // Onde foi o último clique: cada parágrafo é um parágrafo separado na tela, e clicar depois do fim de uma

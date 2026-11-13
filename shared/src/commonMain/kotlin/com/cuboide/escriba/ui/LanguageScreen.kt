@@ -74,15 +74,17 @@ fun LanguageScreen(c: EscribaController) {
         StylePicker(c)
         return
     }
+    val scriptFamily = rememberScriptFamily(c)
     Row(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
         Column(Modifier.width(380.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            LanguageCard(c, lang, wl.previousSeeds.isNotEmpty())
+            LanguageCard(c, lang, wl.previousSeeds.isNotEmpty(), scriptFamily)
             SoundsCard(lang)
             GrammarCard(lang)
             ForeignNameCard(lang)
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            TranslatorCard(c, lang, wl.coined)
+            TranslatorCard(c, lang, wl.coined, scriptFamily)
+            ScriptCard(c, lang, scriptFamily)
             NamesCard(lang)
             SameWordCard(lang)
             DictionaryCard(lang, wl.coined)
@@ -138,10 +140,13 @@ private fun StylePicker(c: EscribaController) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun LanguageCard(c: EscribaController, lang: Language, canGoBack: Boolean) {
+private fun LanguageCard(c: EscribaController, lang: Language, canGoBack: Boolean, scriptFamily: androidx.compose.ui.text.font.FontFamily?) {
     Card("A língua") {
         Text("LÍNGUA Nº ${lang.code}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(lang.name, style = MaterialTheme.typography.displaySmall, fontFamily = LocalFonts.current.display, modifier = Modifier.semantics { contentDescription = "Nome da língua" })
+        if (scriptFamily != null) {
+            Text(c.toScript(lang.name.lowercase()), fontFamily = scriptFamily, fontSize = 30.sp, color = LocalPalette.current.accent, modifier = Modifier.semantics { contentDescription = "Nome na escrita da língua" })
+        }
         Text(lang.pronunciation(lang.name.lowercase()), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text("${lang.style.label}: ${lang.style.description}", style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -201,7 +206,7 @@ private fun Rule(label: String, value: String) {
 }
 
 @Composable
-private fun TranslatorCard(c: EscribaController, lang: Language, coined: Map<String, String>) {
+private fun TranslatorCard(c: EscribaController, lang: Language, coined: Map<String, String>, scriptFamily: androidx.compose.ui.text.font.FontFamily?) {
     val varieties = remember(lang) { lang.changes.varieties(lang.name) }
     var text by remember { mutableStateOf("A rainha viu o mar.") }
     var varietyId by remember(lang) { mutableStateOf("atual") }
@@ -220,11 +225,19 @@ private fun TranslatorCard(c: EscribaController, lang: Language, coined: Map<Str
             }
         }
         Surface(shape = RoundedCornerShape(12.dp), color = scheme.surfaceContainerHigh) {
-            Text(
-                t.sentence.ifBlank { "Escreva uma frase simples em português." },
-                Modifier.fillMaxWidth().padding(20.dp).semantics { contentDescription = "Tradução" },
-                style = MaterialTheme.typography.headlineSmall, fontFamily = LocalFonts.current.display, textAlign = TextAlign.Center,
-            )
+            Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (scriptFamily != null && t.sentence.isNotBlank()) {
+                    Text(
+                        c.toScript(t.sentence), fontFamily = scriptFamily, fontSize = 34.sp, textAlign = TextAlign.Center,
+                        color = scheme.onSurface, modifier = Modifier.semantics { contentDescription = "Tradução na escrita" },
+                    )
+                }
+                Text(
+                    t.sentence.ifBlank { "Escreva uma frase simples em português." },
+                    Modifier.semantics { contentDescription = "Tradução" },
+                    style = MaterialTheme.typography.headlineSmall, fontFamily = LocalFonts.current.display, textAlign = TextAlign.Center,
+                )
+            }
         }
         if (t.glosses.isNotEmpty()) {
             Row(Modifier.fillMaxWidth()) {
@@ -241,7 +254,11 @@ private fun TranslatorCard(c: EscribaController, lang: Language, coined: Map<Str
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(enabled = t.sentence.isNotBlank(), onClick = { copyToClipboard(t.sentence); c.keepCoined(t); c.message = "Tradução copiada. As palavras novas ficaram no dicionário do livro." }) { Text("Copiar a tradução") }
+            Button(enabled = t.sentence.isNotBlank(), onClick = {
+                copyToClipboard(c.toScript(t.sentence)); c.keepCoined(t)
+                c.message = "Copiado na escrita da língua. Cole no Manuscrito: aparece com o alfabeto na tela, na Diagramação e no PDF."
+            }) { Text("Copiar na escrita da língua") }
+            OutlinedButton(enabled = t.sentence.isNotBlank(), onClick = { copyToClipboard(t.sentence); c.keepCoined(t); c.message = "Tradução copiada em letras nossas." }) { Text("Copiar em letras nossas") }
         }
         Small("Palavras que a língua ainda não tinha são criadas na hora e ficam no dicionário quando você copia a tradução.")
     }
@@ -356,6 +373,33 @@ private fun DictionaryCard(lang: Language, coined: Map<String, String>) {
                 Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
                     Text(e.meaning, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                     Text(e.word + if (e.coined) " ·" else "", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+    }
+}
+
+/** Família da escrita inventada do livro aberto (recriada só quando a fonte muda). */
+@Composable
+fun rememberScriptFamily(c: EscribaController): androidx.compose.ui.text.font.FontFamily? {
+    val info = c.scriptFont
+    return remember(info?.id) { info?.let { com.cuboide.escriba.platform.scriptFontFamily(it.bytes, it.id) } }
+}
+
+/** "A escrita": o alfabeto da língua, uma letra por som, com a direção da escrita. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ScriptCard(c: EscribaController, lang: Language, scriptFamily: androidx.compose.ui.text.font.FontFamily?) {
+    val script = c.bookScript ?: return
+    Card("A escrita") {
+        Small("Uma letra por som, escrita ${lang.grammar.direction.label}. No Manuscrito, o texto colado na escrita aparece com estas letras; DOCX, HTML e texto saem em letras nossas.")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            script.glyphs.forEach { g ->
+                Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+                    Column(Modifier.width(64.dp).padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(g.codepoint.toChar().toString(), fontFamily = scriptFamily, fontSize = 30.sp, color = MaterialTheme.colorScheme.onSurface)
+                        Text(g.unit, style = MaterialTheme.typography.labelMedium, fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
         }

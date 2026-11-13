@@ -54,6 +54,9 @@ import com.cuboide.escriba.core.calendar.WorldCalendar
 import com.cuboide.escriba.core.calendar.WorldDate
 import com.cuboide.escriba.core.calendar.parseDate
 import com.cuboide.escriba.core.language.LangStyle
+import com.cuboide.escriba.core.language.Script
+import com.cuboide.escriba.core.language.fontBytes
+import com.cuboide.escriba.platform.registerScriptFont
 import com.cuboide.escriba.core.language.Language
 import com.cuboide.escriba.core.language.Translation
 import com.cuboide.escriba.core.language.WorldLanguage
@@ -276,6 +279,10 @@ class EscribaController(private val services: EscribaServices, private val scope
     private var autosaveJob: Job? = null
     /** Resultado da última conferência do livro (só existe com a conferência ligada ou depois do relatório). */
     var bookCheck by mutableStateOf<BookCheck?>(null); private set
+    /** Fonte da escrita (para o editor, a aba Idiomas e a Diagramação). Declarada antes do `init`, que reabre o livro. */
+    var scriptFont by mutableStateOf<ScriptFontInfo?>(null); private set
+    private var scriptCache: Triple<Long, LangStyle, Pair<Script, ScriptFontInfo>>? = null
+    private var languageCache: Pair<WorldLanguage, Language>? = null
     /** Conferência de contradições em espera (ver [scheduleCheck]). */
     private var checkJob: Job? = null
     /** Texto dos capítulos já lidos para a conferência, pela versão (modifiedAt). */
@@ -345,6 +352,7 @@ class EscribaController(private val services: EscribaServices, private val scope
         services.productivity.record(today(), 0, 0, newSession = true)
         updateSettings { it.copy(lastBookPath = path) }
         manifest.chapters.firstOrNull()?.let { selectChapter(it.id) }
+        refreshScriptFont()
         section = Section.Manuscrito
         checkTexts.clear()
         bookCheck = null
@@ -367,6 +375,8 @@ class EscribaController(private val services: EscribaServices, private val scope
     }
 
     fun closeBook() {
+        registerScriptFont(null)
+        scriptFont = null
         flushSave()
         flushEntrySave()
         acervo = null
@@ -1341,8 +1351,6 @@ class EscribaController(private val services: EscribaServices, private val scope
 
     // ---------- Idiomas ----------
 
-    private var languageCache: Pair<WorldLanguage, Language>? = null
-
     /** Língua do livro já gerada (a geração é guardada enquanto semente e estilo não mudam). */
     val bookLanguage: Language?
         get() {
@@ -1386,7 +1394,45 @@ class EscribaController(private val services: EscribaServices, private val scope
         val b = book ?: return
         b.language = language
         services.books.saveLanguage(b.path, language)
+        refreshScriptFont()
     }
+
+    // ---------- Escrita (fonte gerada) ----------
+
+    /** Fonte da escrita do livro: id (muda com a fonte), bytes e o arquivo em `fontes/` do livro. */
+    class ScriptFontInfo(val id: String, val bytes: ByteArray, val path: String)
+
+    /** Alfabeto da língua do livro. */
+    val bookScript: Script? get() = scriptState()?.first
+
+    private fun scriptState(): Pair<Script, ScriptFontInfo>? {
+        val b = book ?: return null
+        val wl = b.language ?: return null
+        scriptCache?.takeIf { it.first == wl.seed && it.second == wl.style }?.let { return it.third }
+        val lang = bookLanguage ?: return null
+        val script = Script(lang)
+        val bytes = script.fontBytes()
+        val id = "escrita-" + (fnv1a64(bytes.joinToString(",")) ushr 32).toString(16).padStart(8, '0')
+        val path = joinPath(b.path, "fontes", "$id.ttf")
+        if (!services.fs.exists(path)) services.fs.writeBytes(path, bytes)
+        val info = ScriptFontInfo(id, bytes, path)
+        scriptCache = Triple(wl.seed, wl.style, script to info)
+        return script to info
+    }
+
+    /** Gera (se preciso) e registra a fonte da escrita da língua do livro aberto. */
+    private fun refreshScriptFont() {
+        val info = scriptState()?.second
+        scriptFont = info
+        registerScriptFont(info?.path)
+        if (info != null && layout != null) requestLayout(0)
+    }
+
+    /** Texto na escrita da língua (a partir de letras nossas). */
+    fun toScript(roman: String): String = bookScript?.transliterate(roman) ?: roman
+
+    /** Volta a escrita para letras nossas (exportações sem a fonte). */
+    private fun romanizeScript(text: String): String = bookScript?.romanize(text) ?: text
 
     // ---------- Calendário do mundo ----------
 
@@ -1556,7 +1602,9 @@ class EscribaController(private val services: EscribaServices, private val scope
         scope.launch {
             val target = chooseSaveFile(b.manifest.title, format.extension) ?: return@launch
             runCatching {
-                val text = buildExportDocument(b.manifest, services.books.readAllChapters(b.path, b.manifest))
+                // DOCX, HTML, Markdown e texto não levam a fonte: a escrita inventada sai em letras nossas.
+                val chapters = services.books.readAllChapters(b.path, b.manifest).map { (meta, body) -> meta.copy(title = romanizeScript(meta.title)) to romanizeScript(body) }
+                val text = buildExportDocument(b.manifest, chapters)
                 val doc = text.copy(images = imagePaths(text).mapNotNull { path -> services.books.readAsset(b.path, path)?.let { path to it } }.toMap())
                 when (format) {
                     ExportFormat.Markdown -> services.fs.writeText(target, exportMarkdown(doc))

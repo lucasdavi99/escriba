@@ -26,6 +26,7 @@ import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
+import kotlin.test.assertTrue
 
 /** Aba Idiomas: escolher o estilo, tradutor, nomes, variedades e sorteio; grava PNGs se pedido. */
 @OptIn(ExperimentalTestApi::class)
@@ -73,6 +74,20 @@ class LanguageScreenTest {
                 onNodeWithText("Voltar à anterior").performClick()
                 waitForIdle()
                 assertEquals(name, c.bookLanguage!!.name)
+
+                // Escrita: fonte gerada no livro, alfabeto na aba e texto colado no Manuscrito.
+                val font = c.scriptFont!!
+                assertTrue(java.io.File(font.path).isFile && font.path.contains("fontes"))
+                onNodeWithContentDescription("Tradução na escrita").fetchSemanticsNode()
+                onNodeWithText("A ESCRITA").performScrollTo()
+                waitForIdle()
+                shot("idiomas-escrita.png", onRoot().captureToImage().toAwtImage())
+                runOnIdle {
+                    c.goTo(Section.Manuscrito)
+                    c.onEditorChange(androidx.compose.ui.text.input.TextFieldValue("Na pedra do porto alguém gravou: " + c.toScript("lau trak jokjaan") + ". Ninguém soube ler."))
+                }
+                waitForIdle()
+                shot("manuscrito-escrita.png", onRoot().captureToImage().toAwtImage())
             }
         } finally {
             dir.deleteRecursively()

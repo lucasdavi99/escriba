@@ -77,6 +77,12 @@ expect fun movePointerIcon(): androidx.compose.ui.input.pointer.PointerIcon
 /** Copia texto para a área de transferência do sistema. */
 expect fun copyToClipboard(text: String)
 
+/** Família da escrita inventada, lida dos bytes da fonte gerada ([id] muda quando a fonte muda). */
+expect fun scriptFontFamily(bytes: ByteArray, id: String): androidx.compose.ui.text.font.FontFamily?
+
+/** Fonte da escrita para a Diagramação e o PDF (caracteres da área de uso privado vão para ela); `null` tira. */
+expect fun registerScriptFont(path: String?)
+
 /** Grava a frente da capa como JPEG para lojas de e-book. */
 expect fun writeEbookCover(
     cover: com.cuboide.escriba.core.layout.CoverLayout,

@@ -71,7 +71,7 @@ Legenda: ✅ tem · 🟡 tem parte · ❌ não tem. O esforço supõe uma pessoa
 | 28 | Universo compartilhado entre livros | `universe:link-project`, `unificar:*` | ❌ | Acervo de universos e unificação de livros da saga (U8, U9) | M–G |
 | 29 | Árvore genealógica | `ferramentas/arvore-core.js`, `lentes/familia` | ❌ | Vem das relações do item 26; desenho em camadas | M |
 | 30 | Calendário do mundo e linha do tempo | `calendario-mundo-core.js`, `linha-do-tempo-core.js` | ❌ | Meses, semana, eras, festas e estações; luas, sol e constelações; astrolábio e céu animado; datas do Enredo e idades (9.4; U10 a U13) | M–G |
-| 31 | Idiomas inventados | `idiomas-*.js` | ❌ | Gerador por semente e estilo, gramática, tradutor, variedades, nomes e alfabeto próprio como fonte (9.5; U14 a U16) | G–GG |
+| 31 | Idiomas inventados | `idiomas-*.js` | ✅ (12/11) | Gerador por semente e estilo, gramática, tradutor, variedades, nomes e alfabeto próprio como fonte (9.5; U14 a U16) | G–GG |
 | 32 | Mapas | `renderer/mapas/` (2.722 arquivos) | ❌ | Editor em Canvas com camadas, terrenos e carimbos. A arte precisa ser própria ou CC0 (por exemplo, Kenney). É o item mais caro em arte | GG |
 
 ### Progresso e dados
@@ -511,7 +511,21 @@ Calendário e Idiomas aparecem como abas desativadas até as fases 2 e 5.
   - "A mesma palavra, em cada canto", com a história da palavra regra por regra;
   - dicionário;
   - "Sortear outra língua" e "Voltar à anterior".
-- **Falta:** a escrita própria da língua, que é a Fase 6.
+
+**Situação (12/11/2026, fim):** Fase 6 entregue: **U16**. Com ela, as 16 funcionalidades do plano do Universo estão feitas.
+- **Alfabeto** (`core/language/Script.kt`):
+  - Cada som da língua ganha uma letra, desenhada com traços numa grade: retos nos estilos Pedra, Neve e Oráculo, curvos nos estilos Rio, Coral e Areia.
+  - Letras parecidas demais são sorteadas de novo, comparando assinaturas 8×8.
+  - Cada letra ocupa um caractere da área de uso privado do Unicode (a partir de U+E000), com transliteração de ida e volta.
+- **Fonte TrueType** gerada em Kotlin puro (`core/font/TtfWriter.kt`):
+  - tem as tabelas head, hhea, maxp, OS/2, hmtx, cmap 4, loca, glyf, name e post, com checksums;
+  - fica gravada no livro, em `fontes/escrita-<hash>.ttf`;
+  - é validada nos testes pelo FontBox e pelo Java.
+- **Onde aparece:**
+  - Manuscrito: os trechos com esses caracteres aparecem com o alfabeto.
+  - Diagramação e PDF: a fonte é registrada como fonte própria da escrita, usada para medir, na prévia e no PDF, onde vai embutida.
+  - Aba Idiomas: o nome da língua na escrita, a tradução na escrita, "Copiar na escrita da língua" e o quadro "A escrita".
+- **Exportações:** DOCX, HTML, Markdown e texto saem com a escrita convertida para letras nossas.
 
 Ordem sugerida: **U1, U3, U4, U5, U2** (a ficha fica no nível do Autor); depois **U10 e U13** (calendário útil para a
 história); depois **U8 e U6**; e, por último, **U11, U12, U9 e U14–U16** (os mais caros e menos essenciais).

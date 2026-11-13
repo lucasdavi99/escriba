@@ -59,6 +59,8 @@ data class ManuscriptStyling(
     /** Trechos que contradizem as fichas ou o próprio texto (sublinhados). */
     val issues: List<TextMatch> = emptyList(),
     val issueColor: Color = Color(0xFFC62828),
+    /** Fonte da escrita inventada: trechos com caracteres dela aparecem com o alfabeto da língua. */
+    val scriptFamily: FontFamily? = null,
 ) : VisualTransformation {
 
     /** Posição no texto guardado de uma posição da tela (o inverso de [displayOffset]). */
@@ -176,6 +178,16 @@ data class ManuscriptStyling(
 
         matches.forEachIndexed { i, m ->
             if (m.end <= raw.length) span(SpanStyle(background = if (i == currentMatch) currentMatchColor else matchColor), m.start, m.end)
+        }
+        if (scriptFamily != null) {
+            var k = 0
+            while (k < raw.length) {
+                if (raw[k].code in 0xE000..0xF8FF) {
+                    val start = k
+                    while (k < raw.length && raw[k].code in 0xE000..0xF8FF) k++
+                    span(SpanStyle(fontFamily = scriptFamily), start, k)
+                } else k++
+            }
         }
         issues.forEach { m ->
             if (m.end <= raw.length) span(SpanStyle(textDecoration = TextDecoration.Underline, background = issueColor.copy(alpha = 0.16f), color = issueColor), m.start, m.end)
