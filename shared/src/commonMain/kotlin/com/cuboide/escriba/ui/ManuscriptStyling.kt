@@ -19,6 +19,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.BaselineShift
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextIndent
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
@@ -55,6 +56,9 @@ data class ManuscriptStyling(
     val focusMode: Boolean,
     /** Tamanho (sp) do caractere espaçador no começo de cada parágrafo; 0 = parágrafos colados. */
     val spacerSp: Float = 0f,
+    /** Trechos que contradizem as fichas ou o próprio texto (sublinhados). */
+    val issues: List<TextMatch> = emptyList(),
+    val issueColor: Color = Color(0xFFC62828),
 ) : VisualTransformation {
 
     /** Posição no texto guardado de uma posição da tela (o inverso de [displayOffset]). */
@@ -172,6 +176,9 @@ data class ManuscriptStyling(
 
         matches.forEachIndexed { i, m ->
             if (m.end <= raw.length) span(SpanStyle(background = if (i == currentMatch) currentMatchColor else matchColor), m.start, m.end)
+        }
+        issues.forEach { m ->
+            if (m.end <= raw.length) span(SpanStyle(textDecoration = TextDecoration.Underline, background = issueColor.copy(alpha = 0.16f), color = issueColor), m.start, m.end)
         }
         if (spacerSp <= 0f || lines.size < 2) {
             return TransformedText(AnnotatedString(String(display), spans, paragraphs), OffsetMapping.Identity)

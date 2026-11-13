@@ -53,6 +53,17 @@ import com.cuboide.escriba.core.calendar.ParsedDate
 import com.cuboide.escriba.core.calendar.WorldCalendar
 import com.cuboide.escriba.core.calendar.WorldDate
 import com.cuboide.escriba.core.calendar.parseDate
+import com.cuboide.escriba.core.universe.BookCheck
+import com.cuboide.escriba.core.universe.ChapterText
+import com.cuboide.escriba.core.universe.FactKind
+import com.cuboide.escriba.core.universe.SealStatus
+import com.cuboide.escriba.core.universe.TextSpot
+import com.cuboide.escriba.core.universe.checkBook
+import com.cuboide.escriba.core.universe.schema
+import com.cuboide.escriba.core.universe.sealSuggestions
+import com.cuboide.escriba.core.universe.sealText
+import com.cuboide.escriba.core.universe.withAttr
+import com.cuboide.escriba.core.model.EntryAttribute
 import com.cuboide.escriba.core.universe.EntryMentions
 import com.cuboide.escriba.core.universe.MentionIndex
 import com.cuboide.escriba.core.universe.UNIVERSE_SCHEMA_VERSION
@@ -236,6 +247,12 @@ class EscribaController(private val services: EscribaServices, private val scope
     private var layoutJob: Job? = null
 
     private var autosaveJob: Job? = null
+    /** Resultado da última conferência do livro (só existe com a conferência ligada ou depois do relatório). */
+    var bookCheck by mutableStateOf<BookCheck?>(null); private set
+    /** Conferência de contradições em espera (ver [scheduleCheck]). */
+    private var checkJob: Job? = null
+    /** Texto dos capítulos já lidos para a conferência, pela versão (modifiedAt). */
+    private val checkTexts = HashMap<String, Pair<Long, String>>()
     /** Gravação da ficha em espera (ver [updateEntry]). */
     private var entrySaveJob: Job? = null
     private val mentionIndex = MentionIndex()
@@ -301,6 +318,9 @@ class EscribaController(private val services: EscribaServices, private val scope
         updateSettings { it.copy(lastBookPath = path) }
         manifest.chapters.firstOrNull()?.let { selectChapter(it.id) }
         section = Section.Manuscrito
+        checkTexts.clear()
+        bookCheck = null
+        scheduleCheck()
     }
 
     fun goTo(target: Section) {
@@ -376,6 +396,7 @@ class EscribaController(private val services: EscribaServices, private val scope
         saveState = SaveState.Salvo
         refreshMatches()
         snapshots = services.snapshots.list(b.path, id)
+        scheduleCheck()
     }
 
     fun addChapter() {
@@ -480,6 +501,7 @@ class EscribaController(private val services: EscribaServices, private val scope
             recordUndo(editor, mergeable = false)
             applyEdit(TextFieldValue(ruled.text, TextRange(ruled.selStart, ruled.selEnd)))
         }
+        scheduleCheck()
         // Até o próximo quadro o campo ainda acha que o texto é value.text.
         if (editor.text != value.text) {
             fieldBase = value.text
@@ -889,6 +911,7 @@ class EscribaController(private val services: EscribaServices, private val scope
     }
 
     private fun putEntry(b: OpenBook, entry: UniverseEntry) {
+        scheduleCheck()
         val stamped = entry.copy(modifiedAt = services.now())
         val entries = b.universe.entries
         val updated = if (entries.any { it.id == entry.id }) entries.map { if (it.id == entry.id) stamped else it } else entries + stamped
@@ -1013,6 +1036,71 @@ class EscribaController(private val services: EscribaServices, private val scope
         val portrait = entry.portrait ?: return
         updateEntry(entry.copy(portrait = portrait.copy(frame = frame)))
     }
+
+    // ---------- Selo e contradições ----------
+
+    /** Contradições do capítulo aberto, para sublinhar no editor. */
+    val currentIssues: List<TextMatch>
+        get() {
+            if (!settings.checkContradictions) return emptyList()
+            val id = currentChapterId ?: return emptyList()
+            return bookCheck?.contradictions.orEmpty().filter { it.spot.chapterId == id }.map { TextMatch(it.spot.start, it.spot.end) }
+        }
+
+    fun setCheckContradictions(on: Boolean) {
+        updateSettings { it.copy(checkContradictions = on) }
+        if (on) runCheck() else bookCheck = null
+    }
+
+    /** Confere o livro agora (relatório), com ou sem a conferência ligada. */
+    fun runCheck(): BookCheck? {
+        val b = book ?: return null
+        val chapters = b.manifest.chapters.map { meta ->
+            val text = if (meta.id == currentChapterId) editor.text
+            else checkTexts[meta.id]?.takeIf { it.first == meta.modifiedAt }?.second
+                ?: services.books.readChapter(b.path, meta.id).also { checkTexts[meta.id] = meta.modifiedAt to it }
+            ChapterText(meta.id, meta.title, text)
+        }
+        return checkBook(b.universe.entries, chapters).also { bookCheck = it }
+    }
+
+    /** Reconfere pouco depois da última mudança (texto ou fichas), se a conferência estiver ligada. */
+    private fun scheduleCheck() {
+        if (!settings.checkContradictions || book == null) return
+        checkJob?.cancel()
+        checkJob = scope.launch {
+            delay(CHECK_DELAY_MS)
+            runCheck()
+        }
+    }
+
+    /** Liga ou desliga o selo de um atributo da ficha. */
+    fun toggleSeal(entryId: String, key: String) {
+        val entry = book?.universe?.entries?.firstOrNull { it.id == entryId } ?: return
+        val existing = entry.attributes.firstOrNull { it.key == key }
+        val updated = if (existing != null) entry.copy(attributes = entry.attributes.map { if (it.key == key) it.copy(sealed = !it.sealed) else it })
+        else entry.copy(attributes = entry.attributes + EntryAttribute(services.newId(), key, entry.schema.attribute(key)?.label.orEmpty(), "", sealed = true))
+        saveEntry(updated)
+    }
+
+    /**
+     * Copia o que a descrição física diz para os atributos com selo e sela. [replace]: categorias em conflito em
+     * que o autor escolheu ficar com a descrição; as outras em conflito ficam como estão.
+     */
+    fun sealFromDescription(entryId: String, replace: Set<FactKind> = emptySet()) {
+        val entry = book?.universe?.entries?.firstOrNull { it.id == entryId } ?: return
+        var updated = entry
+        for (s in sealSuggestions(entry)) {
+            if (s.status == SealStatus.Conflito && s.kind !in replace) continue
+            val value = if (s.status == SealStatus.Igual) s.current else sealText(s.values)
+            updated = updated.withAttr(s.kind.attrKey, value, services.newId)
+            updated = updated.copy(attributes = updated.attributes.map { if (it.key == s.kind.attrKey) it.copy(sealed = true) else it })
+        }
+        saveEntry(updated)
+    }
+
+    /** Abre o trecho no Manuscrito, selecionado. */
+    fun openSpot(spot: TextSpot) = openMention(spot.chapterId, TextMatch(spot.start, spot.end))
 
     // ---------- Calendário do mundo ----------
 
@@ -1428,6 +1516,7 @@ class EscribaController(private val services: EscribaServices, private val scope
     companion object {
         const val AUTOSAVE_DELAY_MS = 800L
         const val ENTRY_SAVE_DELAY_MS = 300L
+        const val CHECK_DELAY_MS = 600L
         const val LAYOUT_DELAY_MS = 350L
         const val HISTORY_DAYS = 84
         const val ACTIVE_GAP_MS = 30_000L

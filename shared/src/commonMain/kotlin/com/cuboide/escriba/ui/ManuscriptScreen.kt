@@ -668,6 +668,8 @@ private fun ManuscriptEditor(c: EscribaController, deep: DeepClicks, s: AppSetti
         lineHeightEm = s.lineSpacing,
         spacerSp = rememberParagraphSpacer(bookFont, s.editorFontSize.toFloat(), s.lineSpacing, s.paragraphSpacing),
         focusMode = c.focusMode,
+        issues = c.currentIssues,
+        issueColor = MaterialTheme.colorScheme.error,
     )
     // Onde foi o último clique: cada parágrafo é um parágrafo separado na tela, e clicar depois do fim de uma
     // linha devolve a mesma posição que o começo da linha seguinte. Com o lugar do clique, o cursor fica
@@ -999,6 +1001,7 @@ private fun Inspector(c: EscribaController, modifier: Modifier) {
                 }
             }
         }
+        ContradictionsBlock(c)
         val beats = book.outline.beats.filter { it.chapterId == chapter.id }
         if (beats.isNotEmpty()) {
             InspectorBlock("Cenas do roteiro") {

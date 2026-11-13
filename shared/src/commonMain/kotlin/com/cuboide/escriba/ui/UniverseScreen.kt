@@ -40,6 +40,8 @@ import androidx.compose.material.icons.outlined.FormatItalic
 import androidx.compose.material.icons.outlined.FormatListBulleted
 import androidx.compose.material.icons.outlined.FormatQuote
 import androidx.compose.material.icons.outlined.Groups
+import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.LockOpen
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material.icons.outlined.Public
@@ -279,6 +281,7 @@ private fun EntrySheet(c: EscribaController, entry: UniverseEntry, onDeleted: ()
                             QuoteField(entry) { text -> edit { it.withBlock(EntrySchemas.QUOTE, text, c::newId) } }
                         }
                         AttributesCard(c, entry, ::edit)
+                        SealCheckCard(c, entry)
                         MentionsCard(c, entry)
                     }
                     // Coluna da direita: nome, subtítulo, blocos e seções próprias.
@@ -527,9 +530,12 @@ private fun AttributesCard(c: EscribaController, entry: UniverseEntry, edit: ((U
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("ATRIBUTOS", style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
             entry.schema.attributes.forEach { spec ->
-                AttributeRow(entry.id + ":" + spec.key, spec.label, entry.attributes.firstOrNull { it.key == spec.key }?.value.orEmpty(), spec) { v ->
-                    edit { it.withAttr(spec.key, v, c::newId) }
-                }
+                val attr = entry.attributes.firstOrNull { it.key == spec.key }
+                AttributeRow(
+                    entry.id + ":" + spec.key, spec.label, attr?.value.orEmpty(), spec,
+                    sealed = attr?.sealed == true,
+                    onToggleSeal = if (spec.sealable) ({ c.toggleSeal(entry.id, spec.key) }) else null,
+                ) { v -> edit { it.withAttr(spec.key, v, c::newId) } }
             }
             entry.attributes.filter { it.key == null }.forEach { attr ->
                 CustomAttributeRow(attr, onChange = { updated ->
@@ -548,9 +554,28 @@ private fun AttributesCard(c: EscribaController, entry: UniverseEntry, edit: ((U
 }
 
 @Composable
-private fun AttributeRow(key: String, label: String, value: String, spec: AttrSpec?, onChange: (String) -> Unit) {
+private fun AttributeRow(
+    key: String,
+    label: String,
+    value: String,
+    spec: AttrSpec?,
+    sealed: Boolean = false,
+    onToggleSeal: (() -> Unit)? = null,
+    onChange: (String) -> Unit,
+) {
     Column {
-        Text(label.uppercase(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label.uppercase(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (onToggleSeal != null) {
+                // Selo: o Manuscrito confere o texto contra este fato.
+                Icon(
+                    if (sealed) Icons.Outlined.Lock else Icons.Outlined.LockOpen,
+                    if (sealed) "Tirar o selo de $label" else "Selar $label",
+                    Modifier.padding(start = 6.dp).size(14.dp).clip(CircleShape).clickable(onClick = onToggleSeal),
+                    tint = if (sealed) LocalPalette.current.accent else MaterialTheme.colorScheme.outline,
+                )
+            }
+        }
         PlainField(key, value, spec?.placeholder?.ifBlank { "—" } ?: "—", MaterialTheme.typography.bodyMedium, onChange = onChange)
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
     }

@@ -34,6 +34,8 @@ data class AppSettings(
     val smartTypography: Boolean = true,
     val navExpanded: Boolean = true,
     val trashRetentionDays: Int = TrashStore.DEFAULT_RETENTION_DAYS,
+    /** Conferir contradições do texto com as fichas enquanto se escreve (marcas no Manuscrito). */
+    val checkContradictions: Boolean = false,
     val lastBookPath: String? = null,
 )
 

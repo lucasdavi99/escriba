@@ -450,5 +450,30 @@ Calendário e Idiomas aparecem como abas desativadas até as fases 2 e 5.
   - luas, sol e eclipses no editor da estrutura.
 - Ficam de fora, como decidido: o astrolábio, o céu animado e as constelações.
 
+**Situação (12/11/2026, mais tarde):** Fase 3 entregue: **U6**.
+- Os atributos de aparência ganham um **cadeado** (selo).
+- O extrator de fatos (`core/universe/FactExtractor.kt`) lê olhos, cabelo (cor e forma separadas), pele, altura e corpo, mão e marcas:
+  - divide o texto em orações, então "olhos azuis e cabelo ruivo" não se mistura como no Autor;
+  - normaliza gênero e número;
+  - no texto do livro, só aceita altura e corpo depois de verbo de estado ("era alto", não "falou alto").
+- **"Para conferir"** na ficha:
+  - mostra o que a descrição física diz e marca os conflitos com os atributos;
+  - "Selar na ficha" copia e sela, e nos conflitos você escolhe qual vale;
+  - avisa quando aliados e inimigos não batem entre fichas;
+  - lista as contradições do texto com aquela ficha.
+- O detector fica em `core/universe/Contradictions.kt`.
+  - O que ele confere:
+    - o texto contra os fatos selados;
+    - o texto contra ele mesmo, com "Onde foi dito" levando à primeira vez;
+  - Como ele lê o texto:
+    - atribui cada fato ao nome mais próximo, e a "ele/ela" quando a frase não tem nome;
+    - ignora o que vem negado (não, nem, sem…);
+    - lista as idades citadas sem acusá-las.
+- No Manuscrito:
+  - a conferência fica desligada até você ligar;
+  - os trechos ficam sublinhados em vermelho;
+  - o inspetor mostra "neste capítulo" e "nos outros";
+  - há um "Relatório do livro inteiro" com fatos selados, contradições, relações, fichas a selar e idades.
+
 Ordem sugerida: **U1, U3, U4, U5, U2** (a ficha fica no nível do Autor); depois **U10 e U13** (calendário útil para a
 história); depois **U8 e U6**; e, por último, **U11, U12, U9 e U14–U16** (os mais caros e menos essenciais).
