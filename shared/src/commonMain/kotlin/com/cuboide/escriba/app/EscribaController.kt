@@ -53,6 +53,11 @@ import com.cuboide.escriba.core.calendar.ParsedDate
 import com.cuboide.escriba.core.calendar.WorldCalendar
 import com.cuboide.escriba.core.calendar.WorldDate
 import com.cuboide.escriba.core.calendar.parseDate
+import com.cuboide.escriba.core.language.LangStyle
+import com.cuboide.escriba.core.language.Language
+import com.cuboide.escriba.core.language.Translation
+import com.cuboide.escriba.core.language.WorldLanguage
+import com.cuboide.escriba.core.language.fnv1a64
 import com.cuboide.escriba.core.universe.BookCheck
 import com.cuboide.escriba.core.universe.BookUniverse
 import com.cuboide.escriba.core.universe.copyEntries
@@ -183,7 +188,7 @@ enum class Section(val label: String, val needsBook: Boolean) {
 enum class SaveState { Salvo, Pendente, Salvando }
 
 /** O que o Universo está mostrando: as fichas ou uma ferramenta do mundo. */
-enum class UniverseTool { Fichas, Calendario, Acervo }
+enum class UniverseTool { Fichas, Calendario, Idiomas, Acervo }
 
 /** Universo do Acervo aberto para edição. */
 class OpenAcervo(val path: String, meta: AcervoMeta, universe: Universe) {
@@ -199,10 +204,13 @@ class OpenBook(
     notes: BookNotes = BookNotes(),
     boards: PlotBoards = PlotBoards(),
     calendar: WorldCalendar? = null,
+    language: WorldLanguage? = null,
 ) {
     var manifest by mutableStateOf(manifest)
     /** Calendário próprio do livro; `null` = usa o comum (ver [EscribaController.calendar]). */
     var calendar by mutableStateOf(calendar)
+    /** Língua inventada do livro (semente e estilo); `null` = ainda não tem. */
+    var language by mutableStateOf(language)
     var universe by mutableStateOf(universe)
     var outline by mutableStateOf(outline)
     var notes by mutableStateOf(notes)
@@ -329,6 +337,7 @@ class EscribaController(private val services: EscribaServices, private val scope
             path, manifest, services.books.loadUniverse(path), services.books.loadOutline(path), services.books.loadNotes(path),
             services.books.loadBoards(path).ensureBoard(services.newId, "Quadro 1"),
             services.books.loadCalendar(path),
+            services.books.loadLanguage(path),
         )
         map.reset()
         layoutSettings = loadLayoutSettings(services.fs, path)
@@ -1329,6 +1338,55 @@ class EscribaController(private val services: EscribaServices, private val scope
 
     /** Abre o trecho no Manuscrito, selecionado. */
     fun openSpot(spot: TextSpot) = openMention(spot.chapterId, TextMatch(spot.start, spot.end))
+
+    // ---------- Idiomas ----------
+
+    private var languageCache: Pair<WorldLanguage, Language>? = null
+
+    /** Língua do livro já gerada (a geração é guardada enquanto semente e estilo não mudam). */
+    val bookLanguage: Language?
+        get() {
+            val wl = book?.language ?: return null
+            languageCache?.takeIf { it.first.seed == wl.seed && it.first.style == wl.style }?.let { return it.second }
+            return wl.build().also { languageCache = wl to it }
+        }
+
+    /** Cria a língua do livro: a semente vem do título, então o mesmo livro dá sempre a mesma língua. */
+    fun createLanguage(style: LangStyle) {
+        val b = book ?: return
+        saveLanguage(WorldLanguage(fnv1a64(b.manifest.title), style))
+    }
+
+    /** Muda o estilo e mantém a semente (a língua muda de clima, não de sorteio). */
+    fun setLanguageStyle(style: LangStyle) {
+        book?.language?.let { saveLanguage(it.copy(style = style)) }
+    }
+
+    /** Sorteia outra língua; a atual fica guardada para "Voltar à anterior". */
+    fun rerollLanguage() {
+        val wl = book?.language ?: return
+        saveLanguage(wl.copy(seed = kotlin.random.Random.nextLong(), previousSeeds = (wl.previousSeeds + wl.seed).takeLast(20), coined = emptyMap()))
+    }
+
+    fun previousLanguage() {
+        val wl = book?.language ?: return
+        val previous = wl.previousSeeds.lastOrNull() ?: return
+        saveLanguage(wl.copy(seed = previous, previousSeeds = wl.previousSeeds.dropLast(1), coined = emptyMap()))
+    }
+
+    /** Guarda no dicionário do livro as palavras cunhadas de uma tradução que o autor usou (copiou). */
+    fun keepCoined(translation: Translation) {
+        val wl = book?.language ?: return
+        val lang = bookLanguage ?: return
+        val add = translation.newLemmas.filter { it !in wl.coined }.associateWith { lang.protoWord(it) }
+        if (add.isNotEmpty()) saveLanguage(wl.copy(coined = wl.coined + add))
+    }
+
+    private fun saveLanguage(language: WorldLanguage) {
+        val b = book ?: return
+        b.language = language
+        services.books.saveLanguage(b.path, language)
+    }
 
     // ---------- Calendário do mundo ----------
 

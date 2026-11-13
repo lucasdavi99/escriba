@@ -492,5 +492,26 @@ Calendário e Idiomas aparecem como abas desativadas até as fases 2 e 5.
   - **Depois:** o universo da saga fica no Acervo. Mudar uma ficha em qualquer livro, ou no universo da saga, grava em todos, e as imagens são copiadas.
   - **Saída:** "Tirar este livro da saga" deixa uma cópia independente das fichas no livro.
 
+**Situação (12/11/2026, mais tarde):** Fase 5 entregue: **U14** e **U15**.
+- **Gerador** (`core/language/`):
+  - O sorteio é reproduzível (SplitMix64). A semente vem do título do livro, e cada palavra tem a sua própria sequência de sorteio.
+  - Há 6 estilos inventados para o Escriba: Rio, Pedra, Areia, Neve, Coral e Oráculo.
+  - A língua sai com sons, moldes de sílaba, gramática (ordem da frase, adjetivo, acento, afixos de plural, passado, futuro, negação, honorífico e lugar, direção da escrita) e uma lista própria de cerca de 250 conceitos.
+  - A saída fica travada por `GENERATOR_VERSION` e por um teste com valores fixos.
+- **Tradutor:**
+  - lematiza o português (verbos regulares e irregulares, plural e feminino);
+  - divide a frase em orações e põe cada uma na ordem da língua;
+  - aplica os afixos;
+  - adapta nomes próprios;
+  - cunha as palavras que faltam e as marca como "palavra nova", que entram no dicionário do livro quando a tradução é copiada.
+- **Variedades:** 10 delas (proto, antigo, de hoje, três regiões, nobreza, mercado, cerimoniosa e familiar), feitas de regras de som sorteadas, cada uma com uma explicação.
+- **Também na aba:**
+  - nomes com significado para pessoas e lugares, com "Outros nomes";
+  - "Nome de fora";
+  - "A mesma palavra, em cada canto", com a história da palavra regra por regra;
+  - dicionário;
+  - "Sortear outra língua" e "Voltar à anterior".
+- **Falta:** a escrita própria da língua, que é a Fase 6.
+
 Ordem sugerida: **U1, U3, U4, U5, U2** (a ficha fica no nível do Autor); depois **U10 e U13** (calendário útil para a
 história); depois **U8 e U6**; e, por último, **U11, U12, U9 e U14–U16** (os mais caros e menos essenciais).

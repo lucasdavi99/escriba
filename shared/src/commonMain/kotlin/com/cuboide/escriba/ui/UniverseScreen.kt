@@ -202,12 +202,21 @@ fun UniverseScreen(c: EscribaController) {
                     leadingIcon = { Icon(Icons.Outlined.CalendarMonth, null, Modifier.size(18.dp)) },
                     label = { Text("Calendário") },
                 )
-                FilterChip(false, onClick = {}, enabled = false, leadingIcon = { Icon(Icons.Outlined.Translate, null, Modifier.size(18.dp)) }, label = { Text("Idiomas · em breve") })
+                FilterChip(
+                    selected = c.universeTool == UniverseTool.Idiomas,
+                    onClick = { c.universeTool = UniverseTool.Idiomas },
+                    leadingIcon = { Icon(Icons.Outlined.Translate, null, Modifier.size(18.dp)) },
+                    label = { Text("Idiomas") },
+                )
             }
         }
         Spacer(Modifier.height(16.dp))
         if (c.universeTool == UniverseTool.Calendario && acervo == null) {
             CalendarScreen(c)
+            return@SectionPage
+        }
+        if (c.universeTool == UniverseTool.Idiomas && acervo == null) {
+            LanguageScreen(c)
             return@SectionPage
         }
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {

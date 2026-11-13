@@ -2,6 +2,7 @@ package com.cuboide.escriba.core.storage
 
 import com.cuboide.escriba.core.board.PlotBoards
 import com.cuboide.escriba.core.calendar.WorldCalendar
+import com.cuboide.escriba.core.language.WorldLanguage
 import com.cuboide.escriba.core.model.BOOK_EXTENSION
 import com.cuboide.escriba.core.model.BookManifest
 import com.cuboide.escriba.core.model.BookNotes
@@ -115,6 +116,16 @@ class BookRepository(
         return runCatching { EscribaJson.decodeFromString(WorldCalendar.serializer(), text) }.getOrNull()
     }
 
+    /** Língua inventada do livro, ou `null` se ainda não tem. */
+    fun loadLanguage(bookPath: String): WorldLanguage? {
+        val text = fs.readText(joinPath(bookPath, LANGUAGE)) ?: return null
+        return runCatching { EscribaJson.decodeFromString(WorldLanguage.serializer(), text) }.getOrNull()
+    }
+
+    fun saveLanguage(bookPath: String, language: WorldLanguage) {
+        fs.writeText(joinPath(bookPath, LANGUAGE), EscribaJson.encodeToString(WorldLanguage.serializer(), language))
+    }
+
     fun saveCalendar(bookPath: String, calendar: WorldCalendar) {
         fs.writeText(joinPath(bookPath, CALENDAR), EscribaJson.encodeToString(WorldCalendar.serializer(), calendar))
     }
@@ -164,6 +175,7 @@ class BookRepository(
         const val OUTLINE = "outline.json"
         const val ENREDO = "enredo.json"
         const val CALENDAR = "calendar.json"
+        const val LANGUAGE = "language.json"
         const val CHAPTERS_DIR = "chapters"
         const val SNAPSHOTS_DIR = "snapshots"
         const val NOTES = "notes.json"
