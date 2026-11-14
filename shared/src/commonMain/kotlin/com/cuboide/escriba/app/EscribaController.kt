@@ -241,6 +241,8 @@ class EscribaController(private val services: EscribaServices, private val scope
     var trashItems by mutableStateOf<List<TrashItem>>(emptyList()); private set
     var snapshots by mutableStateOf<List<Snapshot>>(emptyList()); private set
     var message by mutableStateOf<String?>(null)
+    /** Pasta com cópias de recuperação (capítulos que não puderam ser gravados ao fechar); `null` se não há nenhuma. */
+    var recoveryDir by mutableStateOf(recoveryPath.takeIf { services.fs.list(it).isNotEmpty() }); private set
     /** Assistente de IA: conversas, contexto e o painel flutuante. */
     val assistant = AssistantController(this, services, scope)
 
@@ -569,6 +571,36 @@ class EscribaController(private val services: EscribaServices, private val scope
      * Grava agora o capítulo aberto. `false` se a gravação falhou: o texto continua pendente na sessão e o
      * escritor é avisado; quem ia trocar de capítulo ou fechar o livro não deve seguir.
      */
+    /** Ctrl+S: grava agora o capítulo, a ficha e o mapa em espera. `false` se o capítulo não pôde ser gravado. */
+    fun flushAll(): Boolean {
+        val saved = flushSave()
+        flushEntrySave()
+        map.flush()
+        return saved
+    }
+
+    /**
+     * Ao fechar a janela: grava tudo o que está em espera. Se o capítulo ainda assim não puder ser gravado, o texto
+     * vai para uma cópia de recuperação nos dados do app, e a próxima abertura avisa ([recoveryDir]).
+     */
+    fun prepareToExit() {
+        runCatching { flushAll() }
+        val s = chapter ?: return
+        if (s.saveState == SaveState.Salvo) return
+        val bookTitle = book?.manifest?.title.orEmpty()
+        val chapterTitle = currentChapter?.title.orEmpty()
+        val name = "${today()} · $bookTitle · $chapterTitle".replace(UNSAFE_FILE_CHARS, "-")
+        val path = joinPath(recoveryPath, "$name.md").let { if (services.fs.exists(it)) joinPath(recoveryPath, "$name ${services.newId()}.md") else it }
+        runCatching { services.fs.writeText(path, s.text) }
+    }
+
+    /** O escritor viu o aviso das cópias de recuperação (os arquivos ficam onde estão). */
+    fun dismissRecovery() {
+        recoveryDir = null
+    }
+
+    private val recoveryPath: String get() = joinPath(services.dataDir, "recuperação")
+
     fun flushSave(): Boolean {
         val s = chapter ?: return true
         if (s.flush()) return true
@@ -1743,6 +1775,8 @@ class EscribaController(private val services: EscribaServices, private val scope
         const val CHECK_DELAY_MS = 600L
         const val LAYOUT_DELAY_MS = 350L
         const val HISTORY_DAYS = 84
+        /** Caracteres que o Windows não aceita em nome de arquivo. */
+        private val UNSAFE_FILE_CHARS = Regex("""[\\/:*?"<>|]""")
         val IMAGE_EXTENSIONS = listOf("png", "jpg", "jpeg", "gif", "webp")
         /** Só formatos que o PDF da capa embute sem conversão. */
         val COVER_IMAGE_EXTENSIONS = listOf("png", "jpg", "jpeg")

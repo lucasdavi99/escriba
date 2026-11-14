@@ -5,7 +5,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -32,6 +34,7 @@ import com.cuboide.escriba.platform.defaultLibraryDir
 import com.cuboide.escriba.platform.localDayKey
 import com.cuboide.escriba.platform.newId
 import com.cuboide.escriba.platform.platformFileStore
+import com.cuboide.escriba.platform.revealInFileManager
 import com.cuboide.escriba.ui.AppShell
 import com.cuboide.escriba.ui.AssistantPanelHost
 import com.cuboide.escriba.ui.EscribaTheme
@@ -63,6 +66,18 @@ fun App(controller: EscribaController? = null) {
         snackbar.showSnackbar(text)
         c.message = null
     }
+    // Capítulos que não puderam ser gravados ao fechar: avisa e mostra a pasta, sem restaurar nada sozinho.
+    LaunchedEffect(c.recoveryDir) {
+        val dir = c.recoveryDir ?: return@LaunchedEffect
+        val result = snackbar.showSnackbar(
+            "Da última vez, um capítulo não pôde ser gravado no livro. O texto ficou numa cópia de recuperação.",
+            actionLabel = "Mostrar na pasta",
+            withDismissAction = true,
+            duration = SnackbarDuration.Indefinite,
+        )
+        if (result == SnackbarResult.ActionPerformed) revealInFileManager(dir)
+        c.dismissRecovery()
+    }
 
     EscribaTheme(theme = c.settings.theme, editorFont = c.settings.editorFont) {
         Surface(
@@ -80,7 +95,7 @@ fun App(controller: EscribaController? = null) {
                 // Ctrl+Z no editor usa o desfazer do manuscrito (que também desfaz formatação e substituições).
                 val typing = inEditor && c.editorFocused
                 when (e.key) {
-                    Key.S -> { c.flushSave(); c.map.flush(); true }
+                    Key.S -> { c.flushAll(); true }
                     Key.F -> { if (e.isShiftPressed) c.goTo(Section.Busca) else c.openFind(); true }
                     Key.H -> { c.openFind(); true }
                     Key.J -> { c.assistant.togglePanel(); true }

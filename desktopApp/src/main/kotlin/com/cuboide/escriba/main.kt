@@ -12,8 +12,9 @@ fun main() = application {
     val scope = rememberCoroutineScope()
     val controller = remember { EscribaController(defaultServices(), scope) }
     Window(
-        // O autosave espera uma pausa na digitação; ao fechar, grava na hora o que ainda está pendente.
-        onCloseRequest = { controller.flushSave(); exitApplication() },
+        // O autosave espera uma pausa; ao fechar, grava na hora o capítulo, a ficha e o mapa pendentes
+        // (o capítulo que não puder ser gravado vira uma cópia de recuperação).
+        onCloseRequest = { controller.prepareToExit(); exitApplication() },
         title = "Escriba",
         // Lembrado: recriar o estado a cada recomposição devolvia a janela ao tamanho inicial (desfazia maximizar).
         state = rememberWindowState(width = 1360.dp, height = 860.dp),

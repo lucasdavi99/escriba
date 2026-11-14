@@ -85,6 +85,45 @@ class ControllerTest {
     }
 
     @Test
+    fun saveAllWritesTheChapterAndThePendingEntry() {
+        c.createBook("Livro", "")
+        val path = c.book!!.path
+        val mara = c.createEntry(EntryKind.Personagem)
+        c.chapter!!.type(TextFieldValue("Mara chegou."))
+        c.updateEntry(mara.copy(name = "Mara")) // grava depois de uma pausa
+        assertTrue(c.flushAll()) // Ctrl+S
+        assertEquals("Mara chegou.", chapterOnDisk())
+        assertEquals("Mara", services.books.loadUniverse(path).entries.single().name)
+    }
+
+    @Test
+    fun exitingWithAChapterThatCannotBeSavedLeavesARecoveryCopy() {
+        c.createBook("Livro", "")
+        c.chapter!!.type(TextFieldValue("o texto que o disco recusou"))
+        fs.failWrites = 1
+        c.prepareToExit()
+
+        val dir = "/data/recuperação"
+        val copy = fs.list(dir).single()
+        assertTrue("Livro" in copy && "Capítulo 1" in copy, copy)
+        assertEquals("o texto que o disco recusou", fs.readText("$dir/$copy"))
+
+        val next = EscribaController(services, scope) // a próxima abertura avisa
+        assertEquals(dir, next.recoveryDir)
+        next.dismissRecovery()
+        assertEquals(null, next.recoveryDir)
+    }
+
+    @Test
+    fun exitingNormallyLeavesNoRecoveryCopy() {
+        c.createBook("Livro", "")
+        c.chapter!!.type(TextFieldValue("gravado"))
+        c.prepareToExit()
+        assertEquals("gravado", chapterOnDisk())
+        assertEquals(null, EscribaController(services, scope).recoveryDir)
+    }
+
+    @Test
     fun undoBelongsToTheOpenChapter() {
         c.createBook("Livro", "")
         val first = c.currentChapterId!!
