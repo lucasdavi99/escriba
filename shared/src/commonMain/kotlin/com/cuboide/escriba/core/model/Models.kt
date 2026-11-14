@@ -41,6 +41,7 @@ enum class BookPartGroup(val label: String) { Antes("Antes da história"), Entre
 /** Capítulo numerado ou outra parte do livro (pré e pós-textuais), que não entra na numeração. */
 @Serializable
 enum class ChapterKind(val label: String, val group: BookPartGroup?) {
+    Piloto("Piloto", BookPartGroup.Antes),
     Capitulo("Capítulo", null),
     Prologo("Prólogo", BookPartGroup.Antes),
     Prefacio("Prefácio", BookPartGroup.Antes),
