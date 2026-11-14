@@ -405,7 +405,10 @@ class AssistantController(
         draftSelectionRange = null
         busy = true
 
-        job = scope.launch {
+        val askedIn = bookPath
+        // Começa só depois de guardado em [job]: o `finally` compara com ele para saber se ainda é a resposta atual.
+        job = scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
+            val thisAnswer = coroutineContext[Job]
             val out = StringBuilder()
             try {
                 services.aiProvider(cfg).stream(AiRequest(built.system, turns, cfg.effectiveModel, maxTokens)).collect { chunk ->
@@ -420,10 +423,17 @@ class AssistantController(
             } catch (e: Exception) {
                 error = "Não foi possível falar com a IA: ${e.message}"
             } finally {
-                busy = false
-                if (out.isBlank()) removeMessage(conv.id, assistantId) else persist()
+                // Uma resposta parada termina depois: se outra já começou, o "ocupado" é dela.
+                if (job === thisAnswer) {
+                    job = null
+                    busy = false
+                }
+                // E se o livro mudou nesse meio-tempo, as conversas abertas são de outro livro.
+                if (bookPath == askedIn) {
+                    if (out.isBlank()) removeMessage(conv.id, assistantId) else persist()
+                }
             }
-        }
+        }.also { it.start() }
     }
 
     /** Para a resposta em andamento, guardando o que já chegou. */
