@@ -33,6 +33,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.MenuOpen
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.outlined.ExpandMore
@@ -71,6 +73,7 @@ val Section.icon: ImageVector
         Section.Manuscrito -> Icons.Outlined.EditNote
         Section.Enredo -> Icons.Outlined.Timeline
         Section.Universo -> Icons.Outlined.Public
+        Section.Assistente -> Icons.Outlined.AutoAwesome
         Section.Metas -> Icons.Outlined.Insights
         Section.Versoes -> Icons.Outlined.History
         Section.Busca -> Icons.Outlined.Search
@@ -81,7 +84,7 @@ val Section.icon: ImageVector
     }
 
 /** Os três lugares onde o livro é escrito. */
-private val primary = listOf(Section.Manuscrito, Section.Enredo, Section.Universo)
+private val primary = listOf(Section.Manuscrito, Section.Enredo, Section.Universo, Section.Assistente)
 
 /** Acompanhar e entregar: ficam num grupo recolhível. */
 private val tools = listOf(Section.Metas, Section.Versoes, Section.Busca, Section.Diagramacao, Section.Exportar)
@@ -101,6 +104,7 @@ fun AppShell(c: EscribaController) {
                         Section.Manuscrito -> ManuscriptScreen(c)
                         Section.Enredo -> OutlineBoard(c, Modifier.fillMaxSize())
                         Section.Universo -> UniverseScreen(c)
+                        Section.Assistente -> AssistantScreen(c)
                         Section.Metas -> GoalsScreen(c)
                         Section.Versoes -> VersionsScreen(c)
                         Section.Busca -> SearchScreen(c)
@@ -144,6 +148,15 @@ private fun NavRail(c: EscribaController) {
                 BookBlock(c, expanded)
                 Spacer(Modifier.height(6.dp))
                 primary.forEach { NavItem(c, it, expanded) }
+                NavButton(
+                    icon = Icons.Outlined.ChatBubbleOutline,
+                    label = "Painel do assistente",
+                    expanded = expanded,
+                    selected = c.assistant.panelVisible,
+                    enabled = true,
+                    compact = true,
+                    onClick = { c.assistant.togglePanel() },
+                )
                 Spacer(Modifier.height(14.dp))
                 ToolsGroup(c, expanded)
             }

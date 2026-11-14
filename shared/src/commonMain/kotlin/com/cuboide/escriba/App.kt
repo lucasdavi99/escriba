@@ -33,6 +33,7 @@ import com.cuboide.escriba.platform.localDayKey
 import com.cuboide.escriba.platform.newId
 import com.cuboide.escriba.platform.platformFileStore
 import com.cuboide.escriba.ui.AppShell
+import com.cuboide.escriba.ui.AssistantPanelHost
 import com.cuboide.escriba.ui.EscribaTheme
 
 fun defaultServices() = EscribaServices(
@@ -48,6 +49,7 @@ fun defaultServices() = EscribaServices(
 private val sectionShortcuts = listOf(
     Key.One to Section.Manuscrito, Key.Two to Section.Enredo, Key.Three to Section.Universo,
     Key.Four to Section.Metas, Key.Five to Section.Versoes, Key.Six to Section.Busca, Key.Seven to Section.Exportar,
+    Key.Eight to Section.Assistente,
 ).toMap()
 
 @Composable
@@ -81,6 +83,7 @@ fun App(controller: EscribaController? = null) {
                     Key.S -> { c.flushSave(); c.map.flush(); true }
                     Key.F -> { if (e.isShiftPressed) c.goTo(Section.Busca) else c.openFind(); true }
                     Key.H -> { c.openFind(); true }
+                    Key.J -> { c.assistant.togglePanel(); true }
                     Key.B -> if (inEditor) { c.toggleMark(MarkKind.Bold); true } else false
                     Key.I -> if (inEditor) { c.toggleMark(MarkKind.Italic); true } else false
                     Key.Z -> if (typing) { if (e.isShiftPressed) c.redo() else c.undo(); true } else false
@@ -91,6 +94,7 @@ fun App(controller: EscribaController? = null) {
         ) {
             Box(Modifier.fillMaxSize()) {
                 AppShell(c)
+                AssistantPanelHost(c)
                 SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 32.dp))
             }
         }

@@ -1,5 +1,6 @@
 package com.cuboide.escriba.core.storage
 
+import com.cuboide.escriba.core.ai.BookConversations
 import com.cuboide.escriba.core.board.PlotBoards
 import com.cuboide.escriba.core.calendar.WorldCalendar
 import com.cuboide.escriba.core.language.WorldLanguage
@@ -22,6 +23,8 @@ import com.cuboide.escriba.core.universe.migrated
  * outline.json         roteiro: cartões de cena na ordem da história
  * enredo.json          mapas de enredo: quadros livres com nós, ligações e a legenda de cores
  * notes.json           blocos de anotações livres do livro
+ * ia/conversas.json    conversas do assistente de IA sobre este livro
+ * ia/instrucoes.txt    instruções do autor para o assistente sobre este livro
  * assets/…             imagens do texto (`![legenda](assets/x.png)`), da capa e dos mapas de enredo
  * snapshots/<id>/…     versões salvas de cada capítulo (ver SnapshotStore)
  * ```
@@ -143,6 +146,26 @@ class BookRepository(
         fs.writeText(joinPath(bookPath, NOTES), EscribaJson.encodeToString(BookNotes.serializer(), notes))
     }
 
+    /** Conversas do assistente de IA sobre o livro; vazio se ainda não houve nenhuma. */
+    fun loadConversations(bookPath: String): BookConversations {
+        val text = fs.readText(joinPath(bookPath, AI_DIR, CONVERSATIONS)) ?: return BookConversations()
+        return runCatching { EscribaJson.decodeFromString(BookConversations.serializer(), text) }.getOrDefault(BookConversations())
+    }
+
+    fun saveConversations(bookPath: String, conversations: BookConversations) {
+        fs.writeText(
+            joinPath(bookPath, AI_DIR, CONVERSATIONS),
+            EscribaJson.encodeToString(BookConversations.serializer(), conversations),
+        )
+    }
+
+    /** Instruções do autor para o assistente sobre este livro (regras da história, tom, público); vazio se não há. */
+    fun loadBookInstructions(bookPath: String): String = fs.readText(joinPath(bookPath, AI_DIR, BOOK_INSTRUCTIONS)).orEmpty()
+
+    fun saveBookInstructions(bookPath: String, text: String) {
+        fs.writeText(joinPath(bookPath, AI_DIR, BOOK_INSTRUCTIONS), text)
+    }
+
     /** Copia uma imagem para `assets/` do livro e devolve o caminho relativo usado no texto. */
     fun importAsset(bookPath: String, bytes: ByteArray, extension: String): String {
         val relative = joinPath(ASSETS_DIR, safeFileName(newId(), "imagem") + "." + extension.lowercase())
@@ -180,5 +203,8 @@ class BookRepository(
         const val SNAPSHOTS_DIR = "snapshots"
         const val NOTES = "notes.json"
         const val ASSETS_DIR = "assets"
+        const val AI_DIR = "ia"
+        const val CONVERSATIONS = "conversas.json"
+        const val BOOK_INSTRUCTIONS = "instrucoes.txt"
     }
 }

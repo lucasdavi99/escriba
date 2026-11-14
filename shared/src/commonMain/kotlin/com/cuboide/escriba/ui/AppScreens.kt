@@ -183,6 +183,7 @@ fun SettingsScreen(c: EscribaController) {
                 Hairline()
                 SwitchRow("Menu lateral expandido", s.navExpanded) { v -> c.updateSettings { it.copy(navExpanded = v) } }
             }
+            SettingsGroup("Assistente de IA") { AssistantSettings(c) }
             SettingsGroup("Dados") {
                 StepperRow("Dias na lixeira", "${s.trashRetentionDays}",
                     onMinus = { c.updateSettings { it.copy(trashRetentionDays = (it.trashRetentionDays - 5).coerceAtLeast(TrashStore.MIN_RETENTION_DAYS)) } },
@@ -200,7 +201,7 @@ fun SettingsScreen(c: EscribaController) {
             }
             SettingsGroup("Atalhos") {
                 listOf(
-                    "Ctrl+1…7" to "Trocar de seção", "Ctrl+F" to "Localizar e substituir no capítulo", "Ctrl+Shift+F" to "Buscar no livro",
+                    "Ctrl+1…8" to "Trocar de seção", "Ctrl+J" to "Abrir ou fechar o painel do assistente", "Ctrl+F" to "Localizar e substituir no capítulo", "Ctrl+Shift+F" to "Buscar no livro",
                     "Ctrl+B · Ctrl+I" to "Negrito · itálico", "F11" to "Modo foco (Esc sai)", "Ctrl+S" to "Salvar agora",
                 ).forEach { (keys, what) ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -309,5 +310,111 @@ private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Un
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
         Switch(checked = checked, onCheckedChange = onChange)
+    }
+}
+
+@Composable
+private fun AssistantSettings(c: EscribaController) {
+    val a = c.assistant
+    val cfg = a.config
+    var providerMenu by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    Text(
+        "Conecte a sua própria conta. A chave fica só neste computador, num arquivo à parte, e não vai para os livros nem para as exportações.",
+        style = MaterialTheme.typography.bodySmall, color = LocalPalette.current.muted,
+    )
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Provedor", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+        Box {
+            OutlinedButton(onClick = { providerMenu = true }) { Text(cfg.provider.label) }
+            DropdownMenu(expanded = providerMenu, onDismissRequest = { providerMenu = false }) {
+                com.cuboide.escriba.core.ai.AiProviderKind.entries.forEach { p ->
+                    DropdownMenuItem(text = { Text(p.label) }, onClick = { providerMenu = false; a.updateConfig { it.copy(provider = p) } })
+                }
+            }
+        }
+    }
+    Hairline()
+    androidx.compose.material3.OutlinedTextField(
+        value = cfg.apiKey,
+        onValueChange = { v -> a.updateConfig { it.copy(apiKey = v.trim()) } },
+        label = { Text(if (cfg.provider.needsKey) "Chave de API" else "Chave de API (opcional)") },
+        singleLine = true,
+        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+        modifier = Modifier.fillMaxWidth(),
+    )
+    androidx.compose.material3.OutlinedTextField(
+        value = cfg.model,
+        onValueChange = { v -> a.updateConfig { it.copy(model = v.trim()) } },
+        label = { Text("Modelo") },
+        placeholder = { Text(cfg.provider.defaultModel.ifEmpty { "ex.: llama3.1" }) },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+    )
+    androidx.compose.material3.OutlinedTextField(
+        value = cfg.baseUrl,
+        onValueChange = { v -> a.updateConfig { it.copy(baseUrl = v.trim()) } },
+        label = { Text("Endereço (opcional)") },
+        placeholder = { Text(cfg.provider.defaultBaseUrl) },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+    )
+    Hairline()
+    StepperRow("Contexto do livro por pergunta (tokens)", "${cfg.contextBudgetTokens / 1000} mil",
+        onMinus = { a.updateConfig { it.copy(contextBudgetTokens = (it.contextBudgetTokens - 4000).coerceAtLeast(com.cuboide.escriba.core.ai.AiConfig.MIN_CONTEXT_BUDGET)) } },
+        onPlus = { a.updateConfig { it.copy(contextBudgetTokens = (it.contextBudgetTokens + 4000).coerceAtMost(com.cuboide.escriba.core.ai.AiConfig.MAX_CONTEXT_BUDGET)) } })
+    StepperRow("Limite com “Livro inteiro” ligado (tokens)", "${cfg.fullBookBudgetTokens / 1000} mil",
+        onMinus = { a.updateConfig { it.copy(fullBookBudgetTokens = (it.fullBookBudgetTokens - 20_000).coerceAtLeast(com.cuboide.escriba.core.ai.AiConfig.MIN_CONTEXT_BUDGET)) } },
+        onPlus = { a.updateConfig { it.copy(fullBookBudgetTokens = (it.fullBookBudgetTokens + 20_000).coerceAtMost(com.cuboide.escriba.core.ai.AiConfig.MAX_FULL_BOOK_BUDGET)) } })
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        OutlinedButton(onClick = { a.testConnection() }, enabled = !a.testing) { Text(if (a.testing) "Testando…" else "Testar conexão") }
+        a.testResult?.let {
+            val ok = it.startsWith("Conexão funcionando")
+            Text(it, style = MaterialTheme.typography.bodySmall, color = if (ok) LocalPalette.current.accent else MaterialTheme.colorScheme.error)
+        }
+    }
+    Hairline()
+    Text("Instruções gerais", style = MaterialTheme.typography.titleSmall)
+    Text(
+        "Valem para toda pergunta, em todos os livros: o jeito como você quer ser ajudado. Regras de uma história vão nas " +
+            "instruções do livro (botão no chat), e papéis como revisor ou leitor beta vão nos modos, abaixo.",
+        style = MaterialTheme.typography.bodySmall, color = LocalPalette.current.muted,
+    )
+    androidx.compose.material3.OutlinedTextField(
+        value = cfg.generalInstructions,
+        onValueChange = { v -> a.updateConfig { it.copy(generalInstructions = v) } },
+        placeholder = { Text("Ex.: Seja direto e honesto, sem elogios vazios. Explique o porquê de cada sugestão.") },
+        modifier = Modifier.fillMaxWidth(),
+        minLines = 3,
+    )
+    Hairline()
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Modos do chat", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+        TextButton(onClick = { a.restoreDefaultModes() }) { Text("Restaurar padrões") }
+        OutlinedButton(onClick = { a.addMode() }) { Text("Novo modo") }
+    }
+    Text(
+        "O papel do assistente numa conversa, escolhido em “Modo” no chat. Cada conversa lembra o seu.",
+        style = MaterialTheme.typography.bodySmall, color = LocalPalette.current.muted,
+    )
+    cfg.modes.forEach { mode ->
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.OutlinedTextField(
+                    value = mode.name,
+                    onValueChange = { v -> a.updateMode(mode.copy(name = v)) },
+                    label = { Text("Nome") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                )
+                IconAction(Icons.Outlined.DeleteOutline, "Apagar modo “${mode.name}”", { a.removeMode(mode.id) })
+            }
+            androidx.compose.material3.OutlinedTextField(
+                value = mode.instructions,
+                onValueChange = { v -> a.updateMode(mode.copy(instructions = v)) },
+                label = { Text("Instruções") },
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 2,
+            )
+        }
     }
 }

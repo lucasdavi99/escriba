@@ -86,3 +86,30 @@ actual fun revealInFileManager(path: String) {
         else desktop.open(if (file.isDirectory) file else file.parentFile)
     }
 }
+
+private val httpClient: java.net.http.HttpClient by lazy {
+    java.net.http.HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(20)).build()
+}
+
+actual fun httpStreamLines(url: String, headers: Map<String, String>, body: String): kotlinx.coroutines.flow.Flow<String> =
+    kotlinx.coroutines.flow.flow {
+        val builder = java.net.http.HttpRequest.newBuilder(java.net.URI.create(url))
+            .timeout(java.time.Duration.ofMinutes(3))
+            .POST(java.net.http.HttpRequest.BodyPublishers.ofString(body, Charsets.UTF_8))
+        headers.forEach { (k, v) -> builder.header(k, v) }
+        // As leituras bloqueiam; `runInterruptible` as interrompe quando a coleta é cancelada (Parar, timeout, fechar o livro).
+        val response = kotlinx.coroutines.runInterruptible(Dispatchers.IO) {
+            httpClient.send(builder.build(), java.net.http.HttpResponse.BodyHandlers.ofLines())
+        }
+        val stream = response.body()
+        try {
+            if (response.statusCode() !in 200..299) {
+                val text = kotlinx.coroutines.runInterruptible(Dispatchers.IO) { stream.iterator().asSequence().joinToString("\n") }
+                throw com.cuboide.escriba.core.ai.HttpStatusException(response.statusCode(), text)
+            }
+            val lines = stream.iterator()
+            while (kotlinx.coroutines.runInterruptible(Dispatchers.IO) { lines.hasNext() }) emit(lines.next())
+        } finally {
+            stream.close()
+        }
+    }

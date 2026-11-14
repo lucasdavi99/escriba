@@ -102,3 +102,9 @@ expect fun decodeImageBitmap(bytes: ByteArray): androidx.compose.ui.graphics.Ima
 
 /** Como [decodeImageBitmap], mas reduzida para que o maior lado tenha no máximo [maxPx] (miniaturas do mapa). */
 expect fun decodeImageThumbnail(bytes: ByteArray, maxPx: Int): androidx.compose.ui.graphics.ImageBitmap?
+
+/**
+ * Faz um POST e entrega o corpo da resposta linha a linha, à medida que chega (SSE das APIs de IA).
+ * Resposta que não seja 2xx lança `HttpStatusException`; cancelar a coleta fecha a conexão.
+ */
+expect fun httpStreamLines(url: String, headers: Map<String, String>, body: String): kotlinx.coroutines.flow.Flow<String>

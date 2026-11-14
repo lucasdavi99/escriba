@@ -38,6 +38,7 @@ import com.cuboide.escriba.core.storage.BookRepository
 import com.cuboide.escriba.core.storage.FileStore
 import com.cuboide.escriba.core.storage.ProductivityStore
 import com.cuboide.escriba.core.storage.ProductivitySummary
+import com.cuboide.escriba.core.ai.createAiProvider
 import com.cuboide.escriba.core.storage.RestoreOutcome
 import com.cuboide.escriba.core.storage.SettingsStore
 import com.cuboide.escriba.core.storage.Snapshot
@@ -163,6 +164,8 @@ class EscribaServices(
     val now: () -> Long,
     val newId: () -> String,
     val dayKey: (Long) -> String,
+    /** Cria o cliente da IA para a conexão do usuário; os testes trocam por um falso. */
+    val aiProvider: (com.cuboide.escriba.core.ai.AiConfig) -> com.cuboide.escriba.core.ai.AiProvider = ::createAiProvider,
 ) {
     val dataDir: String = dataDir
     val books = BookRepository(fs, libraryDir, now, newId)
@@ -171,6 +174,8 @@ class EscribaServices(
     val trash = TrashStore(fs, joinPath(dataDir, "lixeira"), books, now, newId)
     val productivity = ProductivityStore(fs, joinPath(dataDir, "produtividade.json"))
     val settings = SettingsStore(fs, joinPath(dataDir, "settings.json"))
+    /** Conexão com a IA (chave incluída), em arquivo próprio: não vai para o livro nem para exportações. */
+    val ai = com.cuboide.escriba.core.storage.AiStore(fs, joinPath(dataDir, "ia.json"))
 }
 
 /** Seções do menu lateral. As que dependem de um livro aberto ficam desabilitadas na biblioteca. */
@@ -179,6 +184,7 @@ enum class Section(val label: String, val needsBook: Boolean) {
     Manuscrito("Manuscrito", true),
     Enredo("Enredo", true),
     Universo("Universo", true),
+    Assistente("Assistente", true),
     Metas("Metas", true),
     Versoes("Versões", true),
     Busca("Busca", true),
@@ -235,6 +241,8 @@ class EscribaController(private val services: EscribaServices, private val scope
     var trashItems by mutableStateOf<List<TrashItem>>(emptyList()); private set
     var snapshots by mutableStateOf<List<Snapshot>>(emptyList()); private set
     var message by mutableStateOf<String?>(null)
+    /** Assistente de IA: conversas, contexto e o painel flutuante. */
+    val assistant = AssistantController(this, services, scope)
 
     /** Mapa de enredo do livro aberto. */
     val map = PlotMapController(this, services, scope)
@@ -357,6 +365,7 @@ class EscribaController(private val services: EscribaServices, private val scope
         checkTexts.clear()
         bookCheck = null
         scheduleCheck()
+        assistant.onBookOpened(path)
     }
 
     fun goTo(target: Section) {
@@ -375,6 +384,7 @@ class EscribaController(private val services: EscribaServices, private val scope
     }
 
     fun closeBook() {
+        assistant.onBookClosed()
         registerScriptFont(null)
         scriptFont = null
         flushSave()
@@ -712,6 +722,18 @@ class EscribaController(private val services: EscribaServices, private val scope
 
     fun wrapQuotes() = applyFormatting { t, s, e -> Edit(t.substring(0, s) + "“" + t.substring(s, e) + "”" + t.substring(e), s + 1, e + 1) }
 
+    /**
+     * Troca o trecho [start, end) do capítulo aberto por [text] como um passo próprio do desfazer, depois de guardar uma
+     * versão em Versões ([label]). `false` se o trecho não existe mais.
+     */
+    fun replaceRange(start: Int, end: Int, text: String, label: String): Boolean {
+        if (currentChapterId == null || start < 0 || end < start || end > editor.text.length) return false
+        snapshotCurrent(label)
+        val old = editor.text
+        commitEdit(TextFieldValue(old.substring(0, start) + text + old.substring(end), TextRange(start + text.length)))
+        return true
+    }
+
     fun insertText(insert: String) = applyFormatting { t, s, e -> Edit(t.substring(0, s) + insert + t.substring(e), s + insert.length) }
 
     /** Quebra de cena num parágrafo próprio (aparece centralizada e sai assim na exportação). */
@@ -768,6 +790,12 @@ class EscribaController(private val services: EscribaServices, private val scope
     fun addNoteBlock() {
         val b = book ?: return
         saveNotes(b, b.notes.copy(blocks = b.notes.blocks + NoteBlock(services.newId())))
+    }
+
+    /** Cria um bloco de notas já preenchido (ex.: uma resposta do assistente guardada como anotação). */
+    fun addNoteBlockWith(title: String, body: String) {
+        val b = book ?: return
+        saveNotes(b, b.notes.copy(blocks = b.notes.blocks + NoteBlock(services.newId(), title, body)))
     }
 
     fun updateNoteBlock(block: NoteBlock) {
