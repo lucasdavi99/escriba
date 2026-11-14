@@ -9,20 +9,21 @@ import com.cuboide.escriba.core.model.ChapterKind
 import com.cuboide.escriba.core.model.EntryKind
 import com.cuboide.escriba.core.text.BlockKind
 import com.cuboide.escriba.core.text.MarkKind
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.test.TestScope
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class ControllerTest {
     private val fs = InMemoryFileStore()
     private val clock = TestClock()
     private var day = "2026-10-17"
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val services = EscribaServices(fs, "/lib", "/data", { clock.now }, clock::id, { day })
+    /** Um relógio só: as esperas do controller e o `now` andam juntos, e só quando o teste manda. */
+    private val scope = TestScope()
+    private val services = EscribaServices(fs, "/lib", "/data", { clock.now + scope.testScheduler.currentTime }, clock::id, { day })
     private val c = EscribaController(services, scope)
 
     @AfterTest
@@ -122,7 +123,7 @@ class ControllerTest {
     fun typingRulesAndUndoOfTheCorrection() {
         c.createBook("Livro", "")
         c.onEditorChange(TextFieldValue("a -", TextRange(3)))
-        clock.now += 5_000
+        scope.testScheduler.advanceTimeBy(5_000)
         c.onEditorChange(TextFieldValue("a --", TextRange(4)))
         assertEquals("a —", c.editor.text)
         c.undo() // desfaz só a correção

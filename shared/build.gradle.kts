@@ -28,6 +28,8 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            // Tempo virtual: autosave e esperas do editor rodam só quando o teste avança o relógio.
+            implementation(libs.kotlinx.coroutinesTest)
         }
     }
 }
