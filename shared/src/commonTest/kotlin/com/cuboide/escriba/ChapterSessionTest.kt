@@ -68,4 +68,26 @@ class ChapterSessionTest {
         assertEquals("um dois", s.text)
         assertEquals(true, s.canRedo)
     }
+
+    @Test
+    fun anAppEditIsItsOwnUndoStepEvenRightAfterTyping() {
+        val s = session()
+        s.typeAt("Era uma vez")
+        s.edit(TextFieldValue("Era *uma* vez", TextRange(4, 9)))
+        s.undo()
+        assertEquals("Era uma vez", s.text)
+        s.undo()
+        assertEquals("", s.text)
+    }
+
+    @Test
+    fun movingTheSelectionIsNotAnEdit() {
+        val s = session("Era uma vez")
+        s.select(TextRange(4, 7))
+        assertEquals(TextRange(4, 7), s.value.selection)
+        assertEquals(false, s.canUndo)
+        s.edit(s.value.copy(selection = TextRange(0))) // o app pedindo só outro cursor
+        assertEquals(TextRange(0), s.value.selection)
+        assertEquals(false, s.canUndo)
+    }
 }

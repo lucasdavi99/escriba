@@ -17,7 +17,8 @@ import kotlinx.coroutines.launch
  * A sessão do capítulo: o capítulo aberto no Manuscrito, com o texto em edição, o histórico de desfazer e a
  * gravação pendente. Existe uma por capítulo aberto; abrir outro capítulo cria outra.
  *
- * Toda mudança de texto entra por aqui, pela origem: [type] (edição do teclado).
+ * Toda mudança de texto entra por aqui, pela origem: [type] (edição do teclado), [edit] (edição do app) ou
+ * [select] (só a seleção).
  */
 class ChapterSession(
     val chapterId: String,
@@ -82,6 +83,25 @@ class ChapterSession(
         } else {
             fieldBase = null
         }
+    }
+
+    /**
+     * Edição do app (formatação, substituição, inserção, versão restaurada, texto do Assistente): sempre um passo
+     * próprio no desfazer. Com o mesmo texto, só move a seleção.
+     */
+    fun edit(newValue: TextFieldValue) {
+        if (newValue.text == value.text) {
+            value = newValue
+            return
+        }
+        recordUndo(value, mergeable = false)
+        change(newValue)
+    }
+
+    /** Só a seleção muda (ir para uma ocorrência, clicar fora do texto): não é edição nem passo do desfazer. */
+    fun select(selection: TextRange) {
+        val end = value.text.length
+        value = value.copy(selection = TextRange(selection.start.coerceIn(0, end), selection.end.coerceIn(0, end)))
     }
 
     fun undo() {
