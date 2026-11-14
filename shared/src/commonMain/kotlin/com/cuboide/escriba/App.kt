@@ -86,8 +86,8 @@ fun App(controller: EscribaController? = null) {
                     Key.J -> { c.assistant.togglePanel(); true }
                     Key.B -> if (inEditor) { c.toggleMark(MarkKind.Bold); true } else false
                     Key.I -> if (inEditor) { c.toggleMark(MarkKind.Italic); true } else false
-                    Key.Z -> if (typing) { if (e.isShiftPressed) c.redo() else c.undo(); true } else false
-                    Key.Y -> if (typing) { c.redo(); true } else false
+                    Key.Z -> if (typing) { if (e.isShiftPressed) c.chapter?.redo() else c.chapter?.undo(); true } else false
+                    Key.Y -> if (typing) { c.chapter?.redo(); true } else false
                     else -> false
                 }
             },

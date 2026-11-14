@@ -1,21 +1,25 @@
 package com.cuboide.escriba
 
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import com.cuboide.escriba.app.EscribaController
 import com.cuboide.escriba.app.EscribaServices
-import com.cuboide.escriba.app.SaveState
-import androidx.compose.ui.text.TextRange
 import com.cuboide.escriba.core.model.ChapterKind
 import com.cuboide.escriba.core.model.EntryKind
 import com.cuboide.escriba.core.text.BlockKind
 import com.cuboide.escriba.core.text.MarkKind
+import com.cuboide.escriba.core.universe.withAttr
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.TestScope
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
+/** O controller com a sessão do capítulo: o que acontece ao redor do texto (troca de capítulo, livro, chamadores). */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ControllerTest {
     private val fs = InMemoryFileStore()
@@ -30,50 +34,66 @@ class ControllerTest {
     fun tearDown() = scope.cancel()
 
     private fun type(text: String) {
-        c.onEditorChange(TextFieldValue(text))
+        c.chapter!!.type(TextFieldValue(text, TextRange(text.length)))
         c.flushSave()
     }
 
-    private fun chapterOnDisk(): String {
-        val book = c.book!!
-        return services.books.readChapter(book.path, c.currentChapterId!!)
+    private fun chapterOnDisk(id: String = c.currentChapterId!!): String = services.books.readChapter(c.book!!.path, id)
+
+    private fun select(start: Int, end: Int) {
+        c.chapter!!.select(TextRange(start, end))
     }
 
     @Test
-    fun flushSaveWritesPendingTextAtOnce() {
+    fun switchingChapterSavesThePendingText() {
         c.createBook("Livro", "")
-        c.onEditorChange(TextFieldValue("texto digitado antes de fechar"))
-        assertEquals(SaveState.Pendente, c.saveState)
-        assertEquals("", chapterOnDisk())
-
-        c.flushSave() // o que a janela chama ao fechar
-
-        assertEquals(SaveState.Salvo, c.saveState)
-        assertEquals("texto digitado antes de fechar", chapterOnDisk())
+        val first = c.currentChapterId!!
+        c.chapter!!.type(TextFieldValue("ainda não gravado"))
+        c.addChapter()
+        assertEquals("ainda não gravado", chapterOnDisk(first))
     }
 
     @Test
-    fun undoAndRedoDoNotCountWordsTwice() {
+    fun closingTheBookSavesThePendingText() {
         c.createBook("Livro", "")
-        type("um dois três quatro")
-        type("")                     // desfazer
-        type("um dois três quatro")  // refazer
-        assertEquals(4, c.productivity.today.words)
-
-        type("um dois três quatro cinco")
-        assertEquals(5, c.productivity.today.words)
+        val path = c.book!!.path
+        val id = c.currentChapterId!!
+        c.chapter!!.type(TextFieldValue("antes de fechar"))
+        assertTrue(c.closeBook())
+        assertEquals("antes de fechar", services.books.readChapter(path, id))
     }
 
     @Test
-    fun deletingOldTextAndWritingCountsOnlyNewWords() {
+    fun aChapterThatCannotBeSavedStaysOpen() {
         c.createBook("Livro", "")
-        type("a b c d e f")
-        day = "2026-10-18"
-        type("a b c")       // apagou texto de ontem
-        type("a b c d e f") // e reescreveu a mesma quantidade
-        assertEquals(0, c.productivity.today.words)
-        type("a b c d e f g h")
-        assertEquals(2, c.productivity.today.words)
+        val first = c.currentChapterId!!
+        c.addChapter()
+        val second = c.currentChapterId!!
+        c.selectChapter(first)
+        c.chapter!!.type(TextFieldValue("não pode se perder"))
+        fs.failWrites = 2 // a troca de capítulo e o fechar do livro
+
+        assertFalse(c.selectChapter(second))
+        assertEquals(first, c.currentChapterId)
+        assertEquals("não pode se perder", c.chapter!!.text)
+        assertNotNull(c.message)
+        assertFalse(c.closeBook())
+        assertNotNull(c.book)
+
+        assertTrue(c.selectChapter(second)) // o disco voltou: grava e troca
+        assertEquals("não pode se perder", chapterOnDisk(first))
+    }
+
+    @Test
+    fun undoBelongsToTheOpenChapter() {
+        c.createBook("Livro", "")
+        val first = c.currentChapterId!!
+        type("primeiro capítulo")
+        c.addChapter()
+        assertFalse(c.chapter!!.canUndo)
+        c.selectChapter(first)
+        assertFalse(c.chapter!!.canUndo) // a sessão nova começa sem histórico
+        assertEquals("primeiro capítulo", c.chapter!!.text)
     }
 
     @Test
@@ -88,6 +108,37 @@ class ControllerTest {
     }
 
     @Test
+    fun replacingInTheChapterIsNotWriting() {
+        c.createBook("Livro", "")
+        type("a b c")
+        c.findQuery = "b"
+        c.replaceText = "x y z w"
+        c.replaceAllInChapter()
+        c.flushSave()
+        assertEquals("a x y z w c", chapterOnDisk())
+        assertEquals(3, c.productivity.today.words)
+    }
+
+    @Test
+    fun undoingAnEditRefreshesTheContradictionCheck() {
+        c.createBook("Livro", "")
+        val mara = c.createEntry(EntryKind.Personagem).copy(name = "Mara").withAttr("olhos", "verde", c::newId)
+        c.saveEntry(mara)
+        c.toggleSeal(mara.id, "olhos")
+        type("Mara abriu os olhos verdes.")
+        c.setCheckContradictions(true)
+        assertTrue(c.currentIssues.isEmpty())
+
+        c.chapter!!.edit(TextFieldValue("Mara abriu os olhos azuis."))
+        scope.testScheduler.advanceTimeBy(EscribaController.CHECK_DELAY_MS + 1)
+        assertEquals(1, c.currentIssues.size)
+
+        c.chapter!!.undo()
+        scope.testScheduler.advanceTimeBy(EscribaController.CHECK_DELAY_MS + 1)
+        assertTrue(c.currentIssues.isEmpty())
+    }
+
+    @Test
     fun openFindAsksForKeyboardFocusEveryTime() {
         c.createBook("Livro", "")
         val before = c.findFocusRequests
@@ -96,48 +147,23 @@ class ControllerTest {
         assertEquals(before + 2, c.findFocusRequests)
     }
 
-    private fun select(start: Int, end: Int) {
-        c.onEditorChange(c.editor.copy(selection = TextRange(start, end)))
-    }
-
     @Test
     fun formattingIsUndoableAndRedoable() {
         c.createBook("Livro", "")
         type("Era uma vez")
         select(4, 7)
         c.toggleMark(MarkKind.Italic)
-        assertEquals("Era *uma* vez", c.editor.text)
+        assertEquals("Era *uma* vez", c.chapter!!.text)
         c.toggleBlockStyle(BlockKind.Heading1)
-        assertEquals("# Era *uma* vez", c.editor.text)
-        c.undo()
-        assertEquals("Era *uma* vez", c.editor.text)
-        c.undo()
-        assertEquals("Era uma vez", c.editor.text)
-        c.redo()
-        assertEquals("Era *uma* vez", c.editor.text)
+        assertEquals("# Era *uma* vez", c.chapter!!.text)
+        c.chapter!!.undo()
+        assertEquals("Era *uma* vez", c.chapter!!.text)
+        c.chapter!!.undo()
+        assertEquals("Era uma vez", c.chapter!!.text)
+        c.chapter!!.redo()
+        assertEquals("Era *uma* vez", c.chapter!!.text)
         // Formatação não conta como palavras novas.
-        assertEquals(3, c.currentWords)
-    }
-
-    @Test
-    fun typingRulesAndUndoOfTheCorrection() {
-        c.createBook("Livro", "")
-        c.onEditorChange(TextFieldValue("a -", TextRange(3)))
-        scope.testScheduler.advanceTimeBy(5_000)
-        c.onEditorChange(TextFieldValue("a --", TextRange(4)))
-        assertEquals("a —", c.editor.text)
-        c.undo() // desfaz só a correção
-        assertEquals("a --", c.editor.text)
-    }
-
-    @Test
-    fun fastKeystrokeAfterCorrectionKeepsIt() {
-        c.createBook("Livro", "")
-        c.onEditorChange(TextFieldValue("e", TextRange(1)))
-        assertEquals("E", c.editor.text)
-        // O campo manda "el" (sobre o "e" que ele conhecia) antes de receber o "E".
-        c.onEditorChange(TextFieldValue("el", TextRange(2)))
-        assertEquals("El", c.editor.text)
+        assertEquals(3, c.chapter!!.words)
     }
 
     @Test
@@ -146,7 +172,7 @@ class ControllerTest {
         type("Era um rei")
         select(7, 10)
         c.addFootnote("Rei de quê?")
-        assertEquals("Era um rei[^1]", c.editor.text)
+        assertEquals("Era um rei[^1]", c.chapter!!.text)
         assertEquals(listOf("1" to "Rei de quê?"), c.currentFootnotes)
         c.updateFootnote("1", "Rei de Portugal.")
         c.flushSave()
@@ -154,7 +180,7 @@ class ControllerTest {
         assertEquals("Rei de Portugal.", saved.footnotes["1"])
         assertEquals(3, saved.words)
         c.removeFootnote("1")
-        assertEquals("Era um rei", c.editor.text)
+        assertEquals("Era um rei", c.chapter!!.text)
     }
 
     @Test

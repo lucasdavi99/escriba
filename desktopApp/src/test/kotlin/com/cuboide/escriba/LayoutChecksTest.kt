@@ -55,7 +55,7 @@ class LayoutChecksTest {
                     c = remember {
                         EscribaController(services, scope).also {
                             it.createBook("Livro conferido", "Ana Autora")
-                            it.onEditorChange(TextFieldValue(text))
+                            it.chapter!!.type(TextFieldValue(text))
                             it.goTo(Section.Diagramacao)
                             it.updateLayout { s ->
                                 s.copy(

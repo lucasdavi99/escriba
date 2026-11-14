@@ -126,6 +126,7 @@ import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
+import com.cuboide.escriba.app.ChapterSession
 import com.cuboide.escriba.app.EscribaController
 import com.cuboide.escriba.app.SaveState
 import com.cuboide.escriba.app.Section
@@ -325,7 +326,7 @@ private fun ChapterItem(c: EscribaController, chapter: ChapterMeta, number: Int?
     var menu by remember { mutableStateOf(false) }
     var kindMenu by remember { mutableStateOf(false) }
     var rename by remember { mutableStateOf(false) }
-    val words = if (selected) c.currentWords else chapter.words
+    val words = if (selected) c.chapter?.words ?: chapter.words else chapter.words
     val color = statusColor(chapter.status)
     HoverRow(selected, onClick = { c.selectChapter(chapter.id) }, Modifier.fillMaxWidth().padding(vertical = 1.dp)) { hovered ->
         Box(Modifier.width(3.dp).height(30.dp).clip(RoundedCornerShape(2.dp)).background(if (selected) palette.accent else Color.Transparent))
@@ -388,8 +389,8 @@ private fun WritingToolbar(c: EscribaController, chaptersVisible: Boolean, inspe
                     Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp, vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    ToolAction(Icons.AutoMirrored.Outlined.Undo, "Desfazer (Ctrl+Z)", onClick = { c.undo(); c.requestEditorFocus() }, enabled = c.canUndo)
-                    ToolAction(Icons.AutoMirrored.Outlined.Redo, "Refazer (Ctrl+Y)", onClick = { c.redo(); c.requestEditorFocus() }, enabled = c.canRedo)
+                    ToolAction(Icons.AutoMirrored.Outlined.Undo, "Desfazer (Ctrl+Z)", onClick = { c.chapter?.undo(); c.requestEditorFocus() }, enabled = c.chapter?.canUndo == true)
+                    ToolAction(Icons.AutoMirrored.Outlined.Redo, "Refazer (Ctrl+Y)", onClick = { c.chapter?.redo(); c.requestEditorFocus() }, enabled = c.chapter?.canRedo == true)
                     ToolbarDivider()
                     ToolAction(Icons.Outlined.FormatBold, "Negrito (Ctrl+B)", onClick = { c.toggleMark(MarkKind.Bold) })
                     ToolAction(Icons.Outlined.FormatItalic, "Itálico (Ctrl+I)", onClick = { c.toggleMark(MarkKind.Italic) })
@@ -636,7 +637,7 @@ private fun Desk(c: EscribaController, modifier: Modifier) {
         if (c.focusMode) {
             Row(Modifier.align(Alignment.TopEnd).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "${c.currentWords} palavras · Esc para sair",
+                    "${c.chapter?.words ?: 0} palavras · Esc para sair",
                     style = MaterialTheme.typography.labelSmall,
                     color = palette.ink.copy(alpha = 0.45f),
                 )
@@ -676,7 +677,7 @@ private fun Page(c: EscribaController, chapter: ChapterMeta) {
         Spacer(Modifier.height(12.dp))
         ChapterTitleField(c, chapter)
         Ornament(palette.accent, Modifier.align(Alignment.CenterHorizontally).padding(vertical = 22.dp))
-        ManuscriptEditor(c, deep, s, fonts.book, palette)
+        c.chapter?.let { ManuscriptEditor(c, it, deep, s, fonts.book, palette) }
     }
     VerticalScrollbar(
         adapter = rememberScrollbarAdapter(scroll),
@@ -721,7 +722,7 @@ private fun ChapterTitleField(c: EscribaController, chapter: ChapterMeta) {
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun ManuscriptEditor(c: EscribaController, deep: DeepClicks, s: AppSettings, bookFont: androidx.compose.ui.text.font.FontFamily, palette: EscribaPalette) {
+private fun ManuscriptEditor(c: EscribaController, session: ChapterSession, deep: DeepClicks, s: AppSettings, bookFont: androidx.compose.ui.text.font.FontFamily, palette: EscribaPalette) {
     val focus = remember { FocusRequester() }
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
     var footnoteDialog by remember { mutableStateOf(false) }
@@ -733,7 +734,7 @@ private fun ManuscriptEditor(c: EscribaController, deep: DeepClicks, s: AppSetti
         EditorAlign.Direita -> TextAlign.End
     }
     val styling = ManuscriptStyling(
-        selection = c.editor.selection,
+        selection = session.value.selection,
         matches = c.matches,
         currentMatch = c.currentMatch,
         ink = palette.ink,
@@ -757,7 +758,7 @@ private fun ManuscriptEditor(c: EscribaController, deep: DeepClicks, s: AppSetti
     // texto sob o mouse e o clique vira arrasto (o cursor ia parar no começo). Pedidos do tamanho de várias
     // linhas viram só o retângulo do cursor; os pedidos pequenos (cursor ao digitar) passam como estão.
     val currentLayout by rememberUpdatedState(layout)
-    val currentSelection by rememberUpdatedState(c.editor)
+    val currentSelection by rememberUpdatedState(session.value)
     val currentStyling by rememberUpdatedState(styling)
     deep.onSelect = { anchor, current, clicks ->
         val l = currentLayout
@@ -777,7 +778,7 @@ private fun ManuscriptEditor(c: EscribaController, deep: DeepClicks, s: AppSetti
             } else {
                 TextRange(at(anchor), at(current))
             }
-            c.onEditorChange(v.copy(selection = range))
+            session.select(range)
             c.requestEditorFocus()
         }
     }
@@ -799,20 +800,20 @@ private fun ManuscriptEditor(c: EscribaController, deep: DeepClicks, s: AppSetti
         Modifier.bringIntoViewResponder(cursorOnly).onGloballyPositioned { deep.box = it },
     ) {
         BasicTextField(
-            value = c.editor,
+            value = session.value,
             onValueChange = { v ->
                 // O campo avisa a posição no apertar e de novo no soltar: o clique vale até a próxima tecla.
                 val p = press[0]
                 val l = layout
                 var value = v
-                if (p != null && l != null && v.text == c.editor.text && v.selection.collapsed) {
+                if (p != null && l != null && v.text == session.value.text && v.selection.collapsed) {
                     val clickedLine = l.getLineForVerticalPosition(p.y)
                     val shown = styling.displayOffset(v.text, v.selection.start)
                     if (l.getLineForOffset(shown) > clickedLine) {
                         value = v.copy(selection = TextRange(styling.rawOffset(v.text, l.getLineEnd(clickedLine, visibleEnd = true))))
                     }
                 }
-                c.onEditorChange(value)
+                session.type(value)
             },
             textStyle = TextStyle(fontFamily = bookFont, fontSize = s.editorFontSize.sp, lineHeight = s.lineSpacing.em, color = palette.ink),
             cursorBrush = SolidColor(palette.accent),
@@ -831,9 +832,9 @@ private fun ManuscriptEditor(c: EscribaController, deep: DeepClicks, s: AppSetti
                 // Teclas (setas, End…) não são clique: esquece a posição guardada.
                 .onPreviewKeyEvent { press[0] = null; false },
         )
-        val sel = c.editor.selection
+        val sel = session.value.selection
         val l = layout
-        val selStart = styling.displayOffset(c.editor.text, sel.min)
+        val selStart = styling.displayOffset(session.value.text, sel.min)
         if (c.editorFocused && !footnoteDialog && !sel.collapsed && l != null && selStart < l.layoutInput.text.length) {
             val box = l.getBoundingBox(selStart)
             val gap = with(LocalDensity.current) { 52.dp.roundToPx() }
@@ -891,12 +892,13 @@ private fun SmallAction(icon: ImageVector, tooltip: String, onClick: () -> Unit)
 private fun StatusBar(c: EscribaController) {
     val book = c.book ?: return
     val palette = LocalPalette.current
-    val words = c.currentWords
+    val session = c.chapter
+    val words = session?.words ?: 0
     val goal = book.manifest.dailyGoal
     val today = c.productivity.today.words
-    val text = c.editor.text
+    val text = session?.text.orEmpty()
     val pages = maxOf(1, (words + WORDS_PER_PAGE - 1) / WORDS_PER_PAGE)
-    val cursorPage = minOf(pages, 1 + countManuscriptWords(text.substring(0, c.editor.selection.end.coerceIn(0, text.length))) / WORDS_PER_PAGE)
+    val cursorPage = minOf(pages, 1 + countManuscriptWords(text.substring(0, (session?.value?.selection?.end ?: 0).coerceIn(0, text.length))) / WORDS_PER_PAGE)
     val notes = c.currentFootnotes.size
     val style = MaterialTheme.typography.labelMedium
     val muted = palette.muted
@@ -947,7 +949,7 @@ private fun StatusBar(c: EscribaController) {
         }
         // O estado de salvamento fica sempre visível à direita.
         Spacer(Modifier.width(16.dp))
-        val (label, color) = when (c.saveState) {
+        val (label, color) = when (session?.saveState ?: SaveState.Salvo) {
             SaveState.Salvo -> "Salvo" to palette.success
             SaveState.Pendente -> "Editando…" to palette.warning
             SaveState.Salvando -> "Salvando…" to palette.warning
@@ -1097,8 +1099,9 @@ fun Toggle(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
 private fun Inspector(c: EscribaController, modifier: Modifier) {
     val book = c.book ?: return
     val chapter = c.currentChapter ?: return
+    val session = c.chapter ?: return
     val palette = LocalPalette.current
-    val text = c.editor.text
+    val text = session.text
     Column(
         modifier.background(MaterialTheme.colorScheme.background).verticalScroll(rememberScrollState()).padding(horizontal = 22.dp, vertical = 22.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp),
@@ -1115,7 +1118,7 @@ private fun Inspector(c: EscribaController, modifier: Modifier) {
         }
         Hairline()
         CollapsibleSection("Estatísticas") {
-            val words = c.currentWords
+            val words = session.words
             val plain = remember(text) { stripMarkup(text) }
             Row(Modifier.fillMaxWidth()) {
                 MiniStat("$words", "palavras", Modifier.weight(1f))

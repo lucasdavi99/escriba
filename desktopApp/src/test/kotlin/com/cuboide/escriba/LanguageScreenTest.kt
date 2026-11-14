@@ -84,7 +84,7 @@ class LanguageScreenTest {
                 shot("idiomas-escrita.png", onRoot().captureToImage().toAwtImage())
                 runOnIdle {
                     c.goTo(Section.Manuscrito)
-                    c.onEditorChange(androidx.compose.ui.text.input.TextFieldValue("Na pedra do porto alguém gravou: " + c.toScript("lau trak jokjaan") + ". Ninguém soube ler."))
+                    c.chapter!!.type(androidx.compose.ui.text.input.TextFieldValue("Na pedra do porto alguém gravou: " + c.toScript("lau trak jokjaan") + ". Ninguém soube ler."))
                 }
                 waitForIdle()
                 shot("manuscrito-escrita.png", onRoot().captureToImage().toAwtImage())

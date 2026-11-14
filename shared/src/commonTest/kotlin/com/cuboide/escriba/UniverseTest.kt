@@ -187,11 +187,11 @@ class UniverseControllerTest {
     @Test
     fun mentionsCountPerChapterAndOpenTheChapter() {
         c.createBook("Livro", "")
-        c.onEditorChange(TextFieldValue("Mara viu o mar. A Capitã riu."))
+        c.chapter!!.type(TextFieldValue("Mara viu o mar. A Capitã riu."))
         c.flushSave()
         val first = c.currentChapterId!!
         c.addChapter()
-        c.onEditorChange(TextFieldValue("Sem ninguém."))
+        c.chapter!!.type(TextFieldValue("Sem ninguém."))
         c.flushSave()
         val entry = c.createEntry(EntryKind.Personagem).copy(name = "Mara").withAttr(EntrySchemas.ALIASES, "a Capitã", c::newId)
         c.saveEntry(entry)
@@ -204,7 +204,7 @@ class UniverseControllerTest {
 
         c.openMention(first, m.chapters.single().matches[1])
         assertEquals(first, c.currentChapterId)
-        assertEquals("A Capitã", c.editor.text.substring(c.editor.selection.min, c.editor.selection.max))
+        assertEquals("A Capitã", c.chapter!!.value.text.substring(c.chapter!!.value.selection.min, c.chapter!!.value.selection.max))
         assertEquals(listOf("Mara" to 2), c.entriesInCurrentChapter().map { it.first.name to it.second })
     }
 

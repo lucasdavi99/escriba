@@ -67,7 +67,7 @@ class MarginDragTest {
                     c = remember {
                         EscribaController(services, scope).also {
                             it.createBook("Livro das margens", "Ana Autora")
-                            it.onEditorChange(TextFieldValue(text))
+                            it.chapter!!.type(TextFieldValue(text))
                             it.goTo(Section.Diagramacao)
                             it.updateLayout { s -> s.copy(front = FrontMatter(halfTitle = false, titlePage = false, credits = false, toc = false)) }
                         }

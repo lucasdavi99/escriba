@@ -315,7 +315,7 @@ fun VersionsScreen(c: EscribaController) {
 @Composable
 private fun DiffView(c: EscribaController, snapshot: Snapshot, onDone: () -> Unit) {
     val palette = LocalPalette.current
-    val current = c.editor.text
+    val current = c.chapter?.text.orEmpty()
     // Compara o texto como o leitor vê; mudanças só de formatação aparecem num aviso à parte.
     val before = remember(snapshot) { stripMarkup(snapshot.body) }
     val now = remember(current) { stripMarkup(current) }

@@ -53,7 +53,7 @@ class AssistantControllerTest {
     }
 
     private fun write(text: String) {
-        c.onEditorChange(TextFieldValue(text))
+        c.chapter!!.type(TextFieldValue(text))
         c.flushSave()
     }
 
@@ -114,7 +114,7 @@ class AssistantControllerTest {
         val text = "Era uma noite escura. Mirela andou. O vento soprou."
         write(text)
         val start = text.indexOf("Mirela andou.")
-        c.onEditorChange(TextFieldValue(text, TextRange(start, start + "Mirela andou.".length)))
+        c.chapter!!.type(TextFieldValue(text, TextRange(start, start + "Mirela andou.".length)))
         reply = listOf("Mirela avançou em silêncio.")
         assertTrue(a.attachSelection())
         a.send("Melhore o trecho", null)
@@ -125,11 +125,11 @@ class AssistantControllerTest {
 
         val before = c.snapshots.size
         assertTrue(a.replaceSelection(a.current!!.messages.last()))
-        assertEquals("Era uma noite escura. Mirela avançou em silêncio. O vento soprou.", c.editor.text)
+        assertEquals("Era uma noite escura. Mirela avançou em silêncio. O vento soprou.", c.chapter!!.value.text)
         assertEquals(before + 1, c.snapshots.size) // versão guardada antes de trocar
         // E dá para desfazer.
-        c.undo()
-        assertEquals(text, c.editor.text)
+        c.chapter!!.undo()
+        assertEquals(text, c.chapter!!.value.text)
     }
 
     @Test
@@ -139,13 +139,13 @@ class AssistantControllerTest {
         val text = "Primeiro. Mirela andou. Último."
         write(text)
         val start = text.indexOf("Mirela andou.")
-        c.onEditorChange(TextFieldValue(text, TextRange(start, start + 13)))
+        c.chapter!!.type(TextFieldValue(text, TextRange(start, start + 13)))
         a.attachSelection()
         a.send("Melhore", null)
         waitIdle()
         write("Primeiro. Tudo mudou. Último.")
         assertFalse(a.replaceSelection(a.current!!.messages.last()))
-        assertEquals("Primeiro. Tudo mudou. Último.", c.editor.text)
+        assertEquals("Primeiro. Tudo mudou. Último.", c.chapter!!.value.text)
     }
 
     @Test
@@ -156,9 +156,9 @@ class AssistantControllerTest {
         reply = listOf("Segunda linha.\n\nTerceira linha.")
         a.send("Continue", null)
         waitIdle()
-        c.onEditorChange(TextFieldValue("Primeira linha.", TextRange(15)))
+        c.chapter!!.type(TextFieldValue("Primeira linha.", TextRange(15)))
         a.insertAtCursor(a.current!!.messages.last())
-        assertEquals("Primeira linha.\nSegunda linha.\nTerceira linha.", c.editor.text)
+        assertEquals("Primeira linha.\nSegunda linha.\nTerceira linha.", c.chapter!!.value.text)
     }
 
     @Test
@@ -193,7 +193,7 @@ class AssistantControllerTest {
         c.createBook("Livro", "")
         val text = "Começo do capítulo. Meio do capítulo. Fim do capítulo."
         write(text)
-        c.onEditorChange(TextFieldValue(text, TextRange(0, 6))) // seleção que o autor não fez de propósito
+        c.chapter!!.type(TextFieldValue(text, TextRange(0, 6))) // seleção que o autor não fez de propósito
         assertNotNull(a.selectionAvailable) // oferecida como botão…
         assertNotNull(a.autoChapterRef)
         a.send("O que acha?", null)
@@ -225,7 +225,7 @@ class AssistantControllerTest {
         a.runTask(com.cuboide.escriba.core.ai.AiTask.Melhorar)
         assertTrue(requests.isEmpty())
         assertNotNull(a.error)
-        c.onEditorChange(TextFieldValue("Um texto qualquer.", TextRange(3, 8)))
+        c.chapter!!.type(TextFieldValue("Um texto qualquer.", TextRange(3, 8)))
         a.runTask(com.cuboide.escriba.core.ai.AiTask.Melhorar)
         waitIdle()
         assertTrue(a.current!!.messages.first().refs.any { it is AiRef.Selection && it.text == "texto" })

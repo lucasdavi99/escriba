@@ -53,7 +53,7 @@ class ContradictionScreenTest {
                     c = remember {
                         EscribaController(services, scope).also {
                             it.createBook("Livro do mundo", "")
-                            it.onEditorChange(
+                            it.chapter!!.type(
                                 TextFieldValue(
                                     "Mara chegou ao porto ao amanhecer. Ela tinha 34 anos e o cabelo ruivo preso numa trança.\n" +
                                         "Quando o capitão a viu, os olhos azuis de Mara brilharam. Mais tarde, ela soltou o cabelo loiro.",

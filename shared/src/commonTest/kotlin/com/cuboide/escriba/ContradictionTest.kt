@@ -131,7 +131,7 @@ class ContradictionControllerTest {
     @Test
     fun sealingFromTheDescriptionAndCheckingTheBook() {
         c.createBook("Livro", "")
-        c.onEditorChange(androidx.compose.ui.text.input.TextFieldValue("Mara abriu os olhos azuis. Ela era canhota."))
+        c.chapter!!.type(androidx.compose.ui.text.input.TextFieldValue("Mara abriu os olhos azuis. Ela era canhota."))
         c.flushSave()
         val mara = c.createEntry(EntryKind.Personagem).copy(name = "Mara")
             .withBlock("aparencia", "Olhos verdes, cabelo ruivo; canhota.", c::newId)
@@ -154,7 +154,7 @@ class ContradictionControllerTest {
         c.setCheckContradictions(true)
         assertEquals(1, c.bookCheck!!.contradictions.size)
         val issue = c.currentIssues.single()
-        assertEquals("olhos azuis", c.editor.text.substring(issue.start, issue.end))
+        assertEquals("olhos azuis", c.chapter!!.value.text.substring(issue.start, issue.end))
         // Tirar o selo dos olhos: não há mais contra o que conferir.
         c.toggleSeal(mara.id, "olhos")
         assertTrue(c.runCheck()!!.contradictions.isEmpty())

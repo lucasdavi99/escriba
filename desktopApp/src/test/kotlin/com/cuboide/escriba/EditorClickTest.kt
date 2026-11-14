@@ -39,7 +39,7 @@ class EditorClickTest {
                             it.updateSettings { s -> s.copy(paragraphSpacing = paragraphSpacing) }
                             it.createBook("Livro do clique", "")
                             // Capítulo mais alto que a janela: é quando o foco no primeiro clique rolava a folha.
-                            it.onEditorChange(TextFieldValue("Primeiro parágrafo\nSegundo" + "\nMais uma linha do capítulo.".repeat(60)))
+                            it.chapter!!.type(TextFieldValue("Primeiro parágrafo\nSegundo" + "\nMais uma linha do capítulo.".repeat(60)))
                         }
                     }
                     controller = c
@@ -58,7 +58,7 @@ class EditorClickTest {
                 }
                 waitForIdle()
             }
-            return controller!!.editor.selection.start
+            return controller!!.chapter!!.value.selection.start
         } finally {
             dir.deleteRecursively()
         }

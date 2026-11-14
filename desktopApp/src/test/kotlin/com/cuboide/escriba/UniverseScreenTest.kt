@@ -64,7 +64,7 @@ class UniverseScreenTest {
                     c = remember {
                         EscribaController(services, scope).also {
                             it.createBook("Livro do mundo", "")
-                            it.onEditorChange(androidx.compose.ui.text.input.TextFieldValue("Mara olhou o porto. A Capitã não dormia. Tobias chegou."))
+                            it.chapter!!.type(androidx.compose.ui.text.input.TextFieldValue("Mara olhou o porto. A Capitã não dormia. Tobias chegou."))
                             it.flushSave()
                             val path = it.book!!.path
                             val mara = it.createEntry(EntryKind.Personagem)

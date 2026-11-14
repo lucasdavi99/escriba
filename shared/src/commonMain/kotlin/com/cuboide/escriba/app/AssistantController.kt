@@ -38,6 +38,9 @@ class AssistantController(
     private val services: EscribaServices,
     private val scope: CoroutineScope,
 ) {
+    /** Texto e seleção do capítulo aberto (vazio sem capítulo). */
+    private val editorValue: TextFieldValue get() = c.chapter?.value ?: TextFieldValue("")
+
     var config by mutableStateOf(services.ai.current); private set
     var conversations by mutableStateOf<List<Conversation>>(emptyList()); private set
     var currentId by mutableStateOf<String?>(null); private set
@@ -252,16 +255,16 @@ class AssistantController(
     val selectionAvailable: String?
         get() {
             if (c.currentChapterId == null || draftRefs.any { it is AiRef.Selection }) return null
-            val sel = c.editor.selection
+            val sel = editorValue.selection
             if (sel.collapsed) return null
-            return c.editor.text.substring(sel.min, sel.max).takeIf { it.isNotBlank() }
+            return editorValue.text.substring(sel.min, sel.max).takeIf { it.isNotBlank() }
         }
 
     /** Anexa ao pedido o trecho selecionado no editor (só quando o autor pede: seleções antigas não vão sozinhas). */
     fun attachSelection(): Boolean {
         val id = c.currentChapterId ?: return false
         val text = selectionAvailable ?: return false
-        val sel = c.editor.selection
+        val sel = editorValue.selection
         draftRefs = draftRefs + AiRef.Selection(id, text)
         draftSelectionRange = sel.min until sel.max
         return true
@@ -447,8 +450,8 @@ class AssistantController(
             c.message = "Abra um capítulo para inserir o texto."
             return
         }
-        val text = c.editor.text
-        val at = c.editor.selection.max.coerceIn(0, text.length)
+        val text = editorValue.text
+        val at = editorValue.selection.max.coerceIn(0, text.length)
         val before = if (at > 0 && text[at - 1] != '\n') "\n" else ""
         val after = if (at < text.length && text[at] != '\n') "\n" else ""
         c.replaceRange(at, at, before + asManuscript(message.text) + after, "Antes de inserir texto da IA")
@@ -459,7 +462,7 @@ class AssistantController(
     fun selectionTarget(question: ChatMessage): IntRange? {
         val ref = question.refs.filterIsInstance<AiRef.Selection>().firstOrNull() ?: return null
         if (ref.chapterId != c.currentChapterId) return null
-        val text = c.editor.text
+        val text = editorValue.text
         selectionRanges[question.id]?.let { r ->
             if (r.last < text.length && text.substring(r.first, r.last + 1) == ref.text) return r
         }
@@ -505,7 +508,7 @@ class AssistantController(
     private fun currentBookContext(): BookContext {
         val b = c.book!!
         val bodies = b.manifest.chapters.associate { meta ->
-            meta.id to if (meta.id == c.currentChapterId) c.editor.text else services.books.readChapter(b.path, meta.id)
+            meta.id to if (meta.id == c.currentChapterId) editorValue.text else services.books.readChapter(b.path, meta.id)
         }
         return BookContext(b.manifest, bodies, b.universe, b.outline, c.currentChapterId)
     }

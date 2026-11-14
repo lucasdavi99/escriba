@@ -74,7 +74,7 @@ class Book3DViewTest {
                     c = remember {
                         EscribaController(services, scope).also {
                             it.createBook("O Farol de Areia", "Marina Duarte")
-                            it.onEditorChange(TextFieldValue(text))
+                            it.chapter!!.type(TextFieldValue(text))
                             it.goTo(Section.Diagramacao)
                             // Corpo grande e papel encorpado: lombada visível sem um livro enorme no teste.
                             it.updateLayout { s -> s.copy(body = s.body.copy(sizePt = 16f), page = s.page.copy(paper = PaperStock.PolenBold90)) }

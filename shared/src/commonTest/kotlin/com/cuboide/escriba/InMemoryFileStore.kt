@@ -21,7 +21,14 @@ class InMemoryFileStore : FileStore {
 
     override fun writeText(path: String, text: String) = writeBytes(path, text.encodeToByteArray())
 
+    /** Quantas das próximas gravações falham (disco cheio, pasta sumiu). */
+    var failWrites = 0
+
     override fun writeBytes(path: String, bytes: ByteArray) {
+        if (failWrites > 0) {
+            failWrites--
+            throw IllegalStateException("não foi possível gravar $path")
+        }
         val p = norm(path)
         mkdirs(p.substringBeforeLast('/'))
         files[p] = bytes

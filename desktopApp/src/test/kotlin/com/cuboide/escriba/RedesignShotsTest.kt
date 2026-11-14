@@ -68,7 +68,7 @@ class RedesignShotsTest {
                         "Numa vila de pescadores, o farol amanhece soterrado e uma menina decide descobrir por quê.", "", 800, 60000,
                     )
                     c.renameChapter(c.currentChapterId!!, "O degrau a mais")
-                    c.onEditorChange(TextFieldValue(TEXT, TextRange(TEXT.length)))
+                    c.chapter!!.type(TextFieldValue(TEXT, TextRange(TEXT.length)))
                     c.flushSave()
                     c.addChapter(); c.addChapter()
                     val lia = c.createEntry(EntryKind.Personagem).copy(name = "Lia", summary = "Neta do faroleiro, 14 anos, teimosa e curiosa.")

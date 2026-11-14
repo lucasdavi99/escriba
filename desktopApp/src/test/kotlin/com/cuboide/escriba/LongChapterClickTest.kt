@@ -37,7 +37,7 @@ class LongChapterClickTest {
                             System::currentTimeMillis, { UUID.randomUUID().toString() }, { "2026-10-18" })
                         EscribaController(services, scope).also {
                             it.createBook("Livro", "")
-                            it.onEditorChange(TextFieldValue(text))
+                            it.chapter!!.type(TextFieldValue(text))
                         }
                     }
                     controller = c
@@ -56,7 +56,7 @@ class LongChapterClickTest {
                     val y = 400f - n.boundsInRoot.top
                     fields[tallest].performMouseInput { moveTo(Offset(300f, y)); press(); advanceEventTime(100); release() }
                     waitForIdle()
-                    val sel = controller!!.editor.selection.start
+                    val sel = controller!!.chapter!!.value.selection.start
                     last = text.substring(0, sel).count { it == '\n' } + 1
                 }
                 kotlin.test.assertTrue(last > 250, "cursor parou na linha $last")
@@ -68,7 +68,7 @@ class LongChapterClickTest {
                     release()
                 }
                 waitForIdle()
-                kotlin.test.assertFalse(controller!!.editor.selection.collapsed, "arrasto não selecionou nada")
+                kotlin.test.assertFalse(controller!!.chapter!!.value.selection.collapsed, "arrasto não selecionou nada")
             }
         } finally { dir.deleteRecursively() }
     }
