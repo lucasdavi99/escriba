@@ -85,6 +85,36 @@ class ControllerTest {
     }
 
     @Test
+    fun noNewChapterOrPartWhileTheOpenOneCannotBeSaved() {
+        c.createBook("Livro", "")
+        val first = c.currentChapterId!!
+        c.chapter!!.type(TextFieldValue("não pode se perder"))
+        fs.failWritesEndingWith = "/$first.md"
+        val titleFocus = c.titleFocusRequests
+        val editorFocus = c.editorFocusRequests
+
+        c.addChapter()
+        c.addPart(ChapterKind.Prologo)
+
+        assertEquals(1, c.book!!.manifest.chapters.size)
+        assertEquals(first, c.currentChapterId)
+        assertEquals(titleFocus, c.titleFocusRequests) // o título do capítulo antigo não ganha foco para renomear
+        assertEquals(editorFocus, c.editorFocusRequests)
+    }
+
+    @Test
+    fun restoringAVersionThatCannotBeSavedKeepsTheWarning() {
+        c.createBook("Livro", "")
+        type("um dois três")
+        c.snapshotCurrent()
+        type("um")
+        fs.failWritesEndingWith = "/${c.currentChapterId}.md"
+        c.restoreSnapshot(c.snapshots.first { it.label == "Versão manual" })
+        assertEquals("um dois três", c.chapter!!.text) // restaurado na tela, ainda pendente
+        assertTrue("Não foi possível gravar" in c.message.orEmpty(), c.message)
+    }
+
+    @Test
     fun saveAllWritesTheChapterAndThePendingEntry() {
         c.createBook("Livro", "")
         val path = c.book!!.path
@@ -108,8 +138,9 @@ class ControllerTest {
         assertTrue("Livro" in copy && "Capítulo 1" in copy, copy)
         assertEquals("o texto que o disco recusou", fs.readText("$dir/$copy"))
 
-        val next = EscribaController(services, scope) // a próxima abertura avisa
+        val next = EscribaController(services, scope) // a próxima abertura avisa, com livro e capítulo
         assertEquals(dir, next.recoveryDir)
+        assertEquals(listOf("“Capítulo 1”, de Livro"), next.recoveredChapters)
         next.dismissRecovery()
         assertEquals(null, next.recoveryDir)
     }

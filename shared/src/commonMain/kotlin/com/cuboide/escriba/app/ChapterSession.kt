@@ -62,7 +62,7 @@ class ChapterSession(
 
     /**
      * Edição do teclado (digitar, colar, apagar) ou só a seleção mudando no campo. Aplica as regras de digitação
-     * (travessão, aspas, continuação de lista…) e agrupa a digitação seguida num só passo do desfazer.
+     * (travessão, aspas, continuação de lista…) e agrupa as teclas seguidas num só passo do desfazer.
      */
     fun type(incomingValue: TextFieldValue) {
         if (incomingValue.text == value.text) {
@@ -111,7 +111,7 @@ class ChapterSession(
             value = newValue
             return
         }
-        // O que foi digitado até aqui conta; o que o app trouxe só sobe a marca.
+        // O que veio do teclado até aqui conta; o que o app trouxe só sobe a marca.
         val before = words
         pendingWritten += mark.wrote(chapterId, accountedWords, before)
         recordUndo(value, mergeable = false)

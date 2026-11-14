@@ -26,10 +26,19 @@ class DailyWordMark(private val today: () -> String) {
     }
 
     private var lastActivityAt: Long? = null
+    private var activityDay = ""
     private var pendingActiveMs = 0L
 
-    /** Houve uma edição em [at]. Tempo ativo = soma dos intervalos curtos entre edições (pausas longas não contam). */
+    /**
+     * Houve uma edição em [at]. Tempo ativo = soma dos intervalos curtos entre edições (pausas longas não contam);
+     * o intervalo que atravessa a meia-noite não entra no dia novo.
+     */
     fun activity(at: Long) {
+        val day = today()
+        if (day != activityDay) {
+            activityDay = day
+            lastActivityAt = null
+        }
         lastActivityAt?.let { pendingActiveMs += (at - it).coerceIn(0, ACTIVE_GAP_MS) }
         lastActivityAt = at
     }

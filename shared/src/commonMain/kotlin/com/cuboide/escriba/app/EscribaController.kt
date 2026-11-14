@@ -241,8 +241,10 @@ class EscribaController(private val services: EscribaServices, private val scope
     var trashItems by mutableStateOf<List<TrashItem>>(emptyList()); private set
     var snapshots by mutableStateOf<List<Snapshot>>(emptyList()); private set
     var message by mutableStateOf<String?>(null)
-    /** Pasta com cópias de recuperação (capítulos que não puderam ser gravados ao fechar); `null` se não há nenhuma. */
-    var recoveryDir by mutableStateOf(recoveryPath.takeIf { services.fs.list(it).isNotEmpty() }); private set
+    /** Capítulos com cópia de recuperação (não puderam ser gravados ao fechar), como "“Capítulo 3”, de Livro". */
+    var recoveredChapters by mutableStateOf(listRecoveryCopies()); private set
+    /** Pasta das cópias de recuperação; `null` se não há nenhuma (ou o aviso já foi visto). */
+    var recoveryDir by mutableStateOf(recoveryPath.takeIf { recoveredChapters.isNotEmpty() }); private set
     /** Assistente de IA: conversas, contexto e o painel flutuante. */
     val assistant = AssistantController(this, services, scope)
 
@@ -463,12 +465,12 @@ class EscribaController(private val services: EscribaServices, private val scope
 
     fun addChapter() {
         val b = book ?: return
+        if (!flushSave()) return // o capítulo aberto não gravou: nada de capítulo novo (nem foco no título errado)
         val number = b.manifest.chapters.count { it.kind == ChapterKind.Capitulo } + 1
         val meta = ChapterMeta(services.newId(), "Capítulo $number", modifiedAt = services.now())
         services.books.writeChapter(b.path, meta.id, "")
         updateManifest { it.copy(chapters = it.chapters + meta) }
-        selectChapter(meta.id)
-        titleFocusRequests++ // o título já vem selecionado para renomear; Enter leva ao texto
+        if (selectChapter(meta.id)) titleFocusRequests++ // o título já vem selecionado para renomear; Enter leva ao texto
     }
 
     /**
@@ -478,7 +480,7 @@ class EscribaController(private val services: EscribaServices, private val scope
      */
     fun addPart(kind: ChapterKind) {
         val b = book ?: return
-        flushSave()
+        if (!flushSave()) return
         val chapters = b.manifest.chapters
         val index = when (kind.group) {
             BookPartGroup.Antes -> chapters.indexOfFirst { it.kind.group != BookPartGroup.Antes }.let { if (it < 0) chapters.size else it }
@@ -488,8 +490,7 @@ class EscribaController(private val services: EscribaServices, private val scope
         val meta = ChapterMeta(services.newId(), kind.label, modifiedAt = services.now(), kind = kind)
         services.books.writeChapter(b.path, meta.id, "")
         updateManifest { it.copy(chapters = it.chapters.toMutableList().apply { add(index.coerceIn(0, size), meta) }) }
-        selectChapter(meta.id)
-        requestEditorFocus()
+        if (selectChapter(meta.id)) requestEditorFocus()
     }
 
     fun setChapterKind(id: String, kind: ChapterKind) = updateChapterMeta(id) { it.copy(kind = kind) }
@@ -535,10 +536,10 @@ class EscribaController(private val services: EscribaServices, private val scope
     // ---------- Editor e autosave ----------
 
     /** Texto e seleção do capítulo aberto (vazio sem capítulo). */
-    private val editor: TextFieldValue get() = chapter?.value ?: TextFieldValue("")
+    private val chapterValue: TextFieldValue get() = chapter?.value ?: TextFieldValue("")
 
     /** Edição do app (formatação, substituição, inserção): um passo próprio do desfazer, e o foco volta ao texto. */
-    private fun commitEdit(value: TextFieldValue) {
+    private fun appEdit(value: TextFieldValue) {
         chapter?.edit(value)
         requestEditorFocus()
     }
@@ -567,10 +568,6 @@ class EscribaController(private val services: EscribaServices, private val scope
         requestEditorFocus()
     }
 
-    /**
-     * Grava agora o capítulo aberto. `false` se a gravação falhou: o texto continua pendente na sessão e o
-     * escritor é avisado; quem ia trocar de capítulo ou fechar o livro não deve seguir.
-     */
     /** Ctrl+S: grava agora o capítulo, a ficha e o mapa em espera. `false` se o capítulo não pôde ser gravado. */
     fun flushAll(): Boolean {
         val saved = flushSave()
@@ -589,18 +586,31 @@ class EscribaController(private val services: EscribaServices, private val scope
         if (s.saveState == SaveState.Salvo) return
         val bookTitle = book?.manifest?.title.orEmpty()
         val chapterTitle = currentChapter?.title.orEmpty()
-        val name = "${today()} · $bookTitle · $chapterTitle".replace(UNSAFE_FILE_CHARS, "-")
-        val path = joinPath(recoveryPath, "$name.md").let { if (services.fs.exists(it)) joinPath(recoveryPath, "$name ${services.newId()}.md") else it }
+        val name = "$bookTitle · $chapterTitle".replace(UNSAFE_FILE_CHARS, "-")
+        val path = joinPath(recoveryPath, "${today()} · $name.md")
+            .let { if (services.fs.exists(it)) joinPath(recoveryPath, "${today()} ${services.newId()} · $name.md") else it }
         runCatching { services.fs.writeText(path, s.text) }
     }
 
     /** O escritor viu o aviso das cópias de recuperação (os arquivos ficam onde estão). */
     fun dismissRecovery() {
         recoveryDir = null
+        recoveredChapters = emptyList()
     }
+
+    /** Nomes das cópias são "dia · livro · capítulo.md" (ver [prepareToExit]). */
+    private fun listRecoveryCopies(): List<String> =
+        services.fs.list(recoveryPath).filter { it.endsWith(".md") }.map { file ->
+            val parts = file.removeSuffix(".md").split(" · ", limit = 3)
+            if (parts.size == 3) "“${parts[2]}”, de ${parts[1]}" else file.removeSuffix(".md")
+        }
 
     private val recoveryPath: String get() = joinPath(services.dataDir, "recuperação")
 
+    /**
+     * Grava agora o capítulo aberto. `false` se a gravação falhou: o texto continua pendente na sessão e o
+     * escritor é avisado; quem ia trocar de capítulo ou fechar o livro não deve seguir.
+     */
     fun flushSave(): Boolean {
         val s = chapter ?: return true
         if (s.flush()) return true
@@ -618,7 +628,7 @@ class EscribaController(private val services: EscribaServices, private val scope
         val s = chapter ?: return
         val sel = s.value.selection
         val result = op(s.text, sel.min, sel.max)
-        commitEdit(TextFieldValue(result.text, TextRange(result.selStart, result.selEnd)))
+        appEdit(TextFieldValue(result.text, TextRange(result.selStart, result.selEnd)))
     }
 
     /** Negrito, itálico, versalete, sobrescrito ou subscrito na seleção (ou para o que for digitado a seguir). */
@@ -638,10 +648,10 @@ class EscribaController(private val services: EscribaServices, private val scope
      * versão em Versões ([label]). `false` se o trecho não existe mais.
      */
     fun replaceRange(start: Int, end: Int, text: String, label: String): Boolean {
-        if (currentChapterId == null || start < 0 || end < start || end > editor.text.length) return false
+        if (currentChapterId == null || start < 0 || end < start || end > chapterValue.text.length) return false
         snapshotCurrent(label)
-        val old = editor.text
-        commitEdit(TextFieldValue(old.substring(0, start) + text + old.substring(end), TextRange(start + text.length)))
+        val old = chapterValue.text
+        appEdit(TextFieldValue(old.substring(0, start) + text + old.substring(end), TextRange(start + text.length)))
         return true
     }
 
@@ -673,13 +683,13 @@ class EscribaController(private val services: EscribaServices, private val scope
     val currentFootnotes: List<Pair<String, String>>
         get() {
             val chapter = currentChapter ?: return emptyList()
-            return footnoteIds(editor.text).map { it to chapter.footnotes[it].orEmpty() }
+            return footnoteIds(chapterValue.text).map { it to chapter.footnotes[it].orEmpty() }
         }
 
     /** Insere a chamada da nota depois da seleção e guarda o texto da nota no capítulo. */
     fun addFootnote(noteText: String) {
         val chapter = currentChapter ?: return
-        val id = nextFootnoteId(editor.text, chapter.footnotes.keys)
+        val id = nextFootnoteId(chapterValue.text, chapter.footnotes.keys)
         updateChapterMeta(chapter.id) { it.copy(footnotes = it.footnotes + (id to noteText.trim())) }
         applyFormatting { t, s, e -> insertFootnoteRef(t, s, e, id) }
     }
@@ -692,8 +702,8 @@ class EscribaController(private val services: EscribaServices, private val scope
     /** Tira a chamada do texto. O texto da nota fica guardado, para o Ctrl+Z trazer tudo de volta. */
     fun removeFootnote(id: String) {
         val ref = "${MarkKind.Footnote.open}$id${MarkKind.Footnote.close}"
-        val at = editor.text.indexOf(ref)
-        if (at >= 0) commitEdit(TextFieldValue(editor.text.removeRange(at, at + ref.length), TextRange(at)))
+        val at = chapterValue.text.indexOf(ref)
+        if (at >= 0) appEdit(TextFieldValue(chapterValue.text.removeRange(at, at + ref.length), TextRange(at)))
     }
 
     // ---------- Blocos de notas do livro ----------
@@ -727,7 +737,7 @@ class EscribaController(private val services: EscribaServices, private val scope
     /** Cria no Universo uma ficha com o nome selecionado no texto. */
     fun createEntryFromSelection(kind: EntryKind) {
         val b = book ?: return
-        val name = editor.text.substring(editor.selection.min, editor.selection.max).trim()
+        val name = chapterValue.text.substring(chapterValue.selection.min, chapterValue.selection.max).trim()
         if (name.isEmpty() || '\n' in name) {
             message = "Selecione um nome no texto para criar a ficha."
             return
@@ -746,7 +756,7 @@ class EscribaController(private val services: EscribaServices, private val scope
     fun openFind() {
         goTo(Section.Manuscrito)
         findVisible = true
-        val selected = editor.text.substring(editor.selection.min, editor.selection.max)
+        val selected = chapterValue.text.substring(chapterValue.selection.min, chapterValue.selection.max)
         if (selected.isNotEmpty() && '\n' !in selected) findQuery = selected
         refreshMatches()
         findFocusRequests++
@@ -759,10 +769,10 @@ class EscribaController(private val services: EscribaServices, private val scope
     }
 
     fun refreshMatches() {
-        matches = if (findVisible) findAll(editor.text, findQuery, findOptions) else emptyList()
+        matches = if (findVisible) findAll(chapterValue.text, findQuery, findOptions) else emptyList()
         currentMatch = when {
             matches.isEmpty() -> -1
-            else -> matches.indexOfFirst { it.start >= editor.selection.min }.takeIf { it >= 0 } ?: 0
+            else -> matches.indexOfFirst { it.start >= chapterValue.selection.min }.takeIf { it >= 0 } ?: 0
         }
     }
 
@@ -775,26 +785,26 @@ class EscribaController(private val services: EscribaServices, private val scope
 
     fun replaceCurrent() {
         val m = matches.getOrNull(currentMatch) ?: return
-        val text = replaceOne(editor.text, m, findQuery, replaceText, findOptions)
-        commitEdit(TextFieldValue(text, TextRange(m.start)))
+        val text = replaceOne(chapterValue.text, m, findQuery, replaceText, findOptions)
+        appEdit(TextFieldValue(text, TextRange(m.start)))
         refreshMatches()
     }
 
     fun replaceAllInChapter() {
-        val result = replaceAll(editor.text, findQuery, replaceText, findOptions)
+        val result = replaceAll(chapterValue.text, findQuery, replaceText, findOptions)
         if (result.count == 0) return
         snapshotCurrent("Antes de substituir “$findQuery”")
-        commitEdit(TextFieldValue(result.text, TextRange(0)))
+        appEdit(TextFieldValue(result.text, TextRange(0)))
         refreshMatches()
         message = "${result.count} substituição(ões) no capítulo."
     }
 
     /** Apaga todas as ocorrências no capítulo (guarda uma versão antes). */
     fun deleteAllInChapter() {
-        val result = replaceAll(editor.text, findQuery, "", findOptions)
+        val result = replaceAll(chapterValue.text, findQuery, "", findOptions)
         if (result.count == 0) return
         snapshotCurrent("Antes de apagar “$findQuery”")
-        commitEdit(TextFieldValue(result.text, TextRange(0)))
+        appEdit(TextFieldValue(result.text, TextRange(0)))
         refreshMatches()
         message = "${result.count} ocorrência(s) apagada(s) no capítulo."
     }
@@ -842,15 +852,15 @@ class EscribaController(private val services: EscribaServices, private val scope
     fun snapshotCurrent(label: String = "Versão manual") {
         val b = book ?: return
         val id = currentChapterId ?: return
-        services.snapshots.create(b.path, id, editor.text, label, chapter?.words ?: 0)
+        services.snapshots.create(b.path, id, chapterValue.text, label, chapter?.words ?: 0)
         snapshots = services.snapshots.list(b.path, id)
     }
 
     fun restoreSnapshot(snapshot: Snapshot) {
         snapshotCurrent("Antes de restaurar versão")
-        commitEdit(TextFieldValue(snapshot.body)) // edição do app: restaurar não é "escrever"
-        flushSave()
-        message = "Versão restaurada. O texto anterior foi guardado em Versões."
+        appEdit(TextFieldValue(snapshot.body)) // edição do app: restaurar não é "escrever"
+        // Sem gravar, fica o aviso de flushSave: a versão está na tela, mas ainda não no livro.
+        if (flushSave()) message = "Versão restaurada. O texto anterior foi guardado em Versões."
     }
 
     fun deleteSnapshot(snapshot: Snapshot) {
@@ -941,18 +951,18 @@ class EscribaController(private val services: EscribaServices, private val scope
     fun entryMentions(entry: UniverseEntry): EntryMentions {
         val b = book ?: return EntryMentions(emptyList(), emptyList(), 0)
         val chapters = b.manifest.chapters.map { meta ->
-            val version = if (meta.id == currentChapterId) editor.text.hashCode().toLong() shl 32 or 1L else meta.modifiedAt
+            val version = if (meta.id == currentChapterId) chapterValue.text.hashCode().toLong() shl 32 or 1L else meta.modifiedAt
             Triple(meta.id, meta.title, version)
         }
         return mentionIndex.mentions(entry, chapters) { id ->
-            if (id == currentChapterId) editor.text else services.books.readChapter(b.path, id)
+            if (id == currentChapterId) chapterValue.text else services.books.readChapter(b.path, id)
         }
     }
 
     /** Fichas citadas no capítulo aberto, com quantas vezes cada uma aparece (mais citadas primeiro). */
     fun entriesInCurrentChapter(): List<Pair<UniverseEntry, Int>> {
         val b = book ?: return emptyList()
-        val text = editor.text
+        val text = chapterValue.text
         return b.universe.entries.mapNotNull { e ->
             val n = findMentions(text, e.searchTerms()).size
             if (n > 0) e to n else null
@@ -1238,7 +1248,7 @@ class EscribaController(private val services: EscribaServices, private val scope
     fun runCheck(): BookCheck? {
         val b = book ?: return null
         val chapters = b.manifest.chapters.map { meta ->
-            val text = if (meta.id == currentChapterId) editor.text
+            val text = if (meta.id == currentChapterId) chapterValue.text
             else checkTexts[meta.id]?.takeIf { it.first == meta.modifiedAt }?.second
                 ?: services.books.readChapter(b.path, meta.id).also { checkTexts[meta.id] = meta.modifiedAt to it }
             ChapterText(meta.id, meta.title, text)
@@ -1454,7 +1464,7 @@ class EscribaController(private val services: EscribaServices, private val scope
         message = "Modelo “${template.name}” aplicado: ${template.steps.size} cenas adicionadas ao fim do roteiro."
     }
 
-    /** Abre no editor o capítulo vinculado à cena. */
+    /** Abre no Manuscrito o capítulo vinculado à cena. */
     fun openBeatChapter(beat: Beat) {
         val chapterId = beat.chapterId ?: return
         if (book?.manifest?.chapters?.none { it.id == chapterId } != false) return

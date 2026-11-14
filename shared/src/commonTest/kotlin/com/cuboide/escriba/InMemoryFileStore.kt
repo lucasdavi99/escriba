@@ -23,10 +23,13 @@ class InMemoryFileStore : FileStore {
 
     /** Quantas das próximas gravações falham (disco cheio, pasta sumiu). */
     var failWrites = 0
+    /** Gravações em caminhos que terminam assim falham sempre (só um arquivo com problema). */
+    var failWritesEndingWith: String? = null
 
     override fun writeBytes(path: String, bytes: ByteArray) {
-        if (failWrites > 0) {
-            failWrites--
+        val failing = failWritesEndingWith?.let { norm(path).endsWith(it) } == true
+        if (failing || failWrites > 0) {
+            if (!failing) failWrites--
             throw IllegalStateException("não foi possível gravar $path")
         }
         val p = norm(path)

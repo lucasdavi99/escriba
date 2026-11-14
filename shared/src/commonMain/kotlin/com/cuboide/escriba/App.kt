@@ -70,7 +70,7 @@ fun App(controller: EscribaController? = null) {
     LaunchedEffect(c.recoveryDir) {
         val dir = c.recoveryDir ?: return@LaunchedEffect
         val result = snackbar.showSnackbar(
-            "Da última vez, um capítulo não pôde ser gravado no livro. O texto ficou numa cópia de recuperação.",
+            "Da última vez, não foi possível gravar ${c.recoveredChapters.joinToString("; ")}. O texto ficou numa cópia de recuperação.",
             actionLabel = "Mostrar na pasta",
             withDismissAction = true,
             duration = SnackbarDuration.Indefinite,

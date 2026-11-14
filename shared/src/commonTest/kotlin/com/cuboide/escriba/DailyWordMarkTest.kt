@@ -53,6 +53,16 @@ class DailyWordMarkTest {
     }
 
     @Test
+    fun theGapAcrossMidnightIsNotActiveTime() {
+        mark.activity(at = 0)
+        day = "2026-10-18"
+        mark.activity(at = 20_000) // a pausa atravessou a meia-noite: não entra em hoje
+        assertEquals(0, mark.takeActiveSeconds())
+        mark.activity(at = 25_000)
+        assertEquals(5, mark.takeActiveSeconds())
+    }
+
+    @Test
     fun eachChapterHasItsOwnMark() {
         assertEquals(5, mark.wrote("um", from = 0, to = 5))
         assertEquals(5, mark.wrote("outro", from = 0, to = 5))

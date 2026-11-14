@@ -5,7 +5,7 @@ Editor de livros para escritores: biblioteca, manuscrito, universo da história,
 ## Manuscrito
 
 **Sessão do capítulo**:
-O capítulo aberto no Manuscrito, com o texto em edição, o histórico de desfazer e a gravação pendente. Existe uma por vez e termina quando outro capítulo é aberto.
+O capítulo aberto no Manuscrito, com o texto em edição, o histórico de desfazer e a gravação pendente. Existe uma por vez; abrir outro capítulo, ou substituir no livro inteiro, começa uma nova.
 _Avoid_: Sessão do editor, editor (para o capítulo aberto)
 
 **Edição do teclado**:
