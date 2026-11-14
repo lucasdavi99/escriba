@@ -33,6 +33,8 @@ class ChapterSession(
     private val write: (String) -> Unit,
     /** Depois de cada gravação bem-sucedida; quem é dono do livro atualiza o manifesto e a produtividade. */
     private val onSaved: (ChapterSaved) -> Unit,
+    /** Uma vez a cada mudança de texto, qualquer que seja a origem (o Selo e o Localizar se atualizam). */
+    private val onTextChanged: () -> Unit,
 ) {
     /** O que o campo do Manuscrito mostra: texto, seleção e composição do IME. */
     var value by mutableStateOf(TextFieldValue(text)); private set
@@ -97,6 +99,7 @@ class ChapterSession(
         } else {
             fieldBase = null
         }
+        onTextChanged()
     }
 
     /**
@@ -115,6 +118,7 @@ class ChapterSession(
         change(newValue)
         accountedWords = words
         mark.appEdited(chapterId, before, accountedWords)
+        onTextChanged()
     }
 
     /** Só a seleção muda (ir para uma ocorrência, clicar fora do texto): não é edição nem passo do desfazer. */
@@ -129,6 +133,7 @@ class ChapterSession(
         lastUndoMergeable = false
         change(previous)
         updateUndoFlags()
+        onTextChanged()
     }
 
     fun redo() {
@@ -137,6 +142,7 @@ class ChapterSession(
         lastUndoMergeable = false
         change(next)
         updateUndoFlags()
+        onTextChanged()
     }
 
     /**

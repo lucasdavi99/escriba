@@ -38,7 +38,10 @@ class ChapterSessionTest {
             disk = body
         },
         onSaved = { saves += it },
+        onTextChanged = { textChanges++ },
     )
+
+    private var textChanges = 0
 
     private val writtenToday get() = saves.sumOf { it.written }
 
@@ -105,6 +108,20 @@ class ChapterSessionTest {
         s.edit(s.value.copy(selection = TextRange(0))) // o app pedindo só outro cursor
         assertEquals(TextRange(0), s.value.selection)
         assertEquals(false, s.canUndo)
+    }
+
+    @Test
+    fun everyTextChangeIsAnnouncedWhateverItsOrigin() {
+        smartTypography = false
+        val s = session()
+        s.typeAt("Era")
+        s.edit(TextFieldValue("Era uma vez"))
+        s.undo()
+        s.redo()
+        assertEquals(4, textChanges)
+        s.select(TextRange(0, 3))
+        s.type(s.value.copy(selection = TextRange(1))) // o campo só moveu o cursor
+        assertEquals(4, textChanges)
     }
 
     @Test
