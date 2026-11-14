@@ -951,6 +951,7 @@ private fun StatusBar(c: EscribaController) {
             SaveState.Salvo -> "Salvo" to palette.success
             SaveState.Pendente -> "Editando…" to palette.warning
             SaveState.Salvando -> "Salvando…" to palette.warning
+            SaveState.Erro -> "Não salvo" to palette.danger
         }
         StatusDot(color, 6.dp)
         Spacer(Modifier.width(6.dp))

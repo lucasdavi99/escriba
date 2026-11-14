@@ -194,7 +194,8 @@ enum class Section(val label: String, val needsBook: Boolean) {
     Preferencias("Preferências", false),
 }
 
-enum class SaveState { Salvo, Pendente, Salvando }
+/** [Erro]: a última gravação falhou e o texto continua só na memória, pendente. */
+enum class SaveState { Salvo, Pendente, Salvando, Erro }
 
 /** O que o Universo está mostrando: as fichas ou uma ferramenta do mundo. */
 enum class UniverseTool { Fichas, Calendario, Idiomas, Acervo }

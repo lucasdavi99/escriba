@@ -7,7 +7,9 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import com.cuboide.escriba.core.text.DailyWordMark
 import com.cuboide.escriba.core.text.applyTypingRules
+import com.cuboide.escriba.core.text.countManuscriptWords
 import com.cuboide.escriba.core.text.rebaseFieldEdit
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -27,12 +29,24 @@ class ChapterSession(
     private val now: () -> Long,
     private val mark: DailyWordMark,
     private val smartTypography: () -> Boolean,
+    /** Grava o corpo do capítulo no livro; pode lançar (disco cheio, pasta sumiu). */
+    private val write: (String) -> Unit,
+    /** Depois de cada gravação bem-sucedida; quem é dono do livro atualiza o manifesto e a produtividade. */
+    private val onSaved: (ChapterSaved) -> Unit,
 ) {
     /** O que o campo do Manuscrito mostra: texto, seleção e composição do IME. */
     var value by mutableStateOf(TextFieldValue(text)); private set
     val text: String get() = value.text
+    val words: Int get() = countManuscriptWords(value.text)
     var canUndo by mutableStateOf(false); private set
     var canRedo by mutableStateOf(false); private set
+    var saveState by mutableStateOf(SaveState.Salvo); private set
+
+    private var autosaveJob: Job? = null
+    /** Palavras na última vez que a marca do dia foi conferida (abertura, gravação ou edição do app). */
+    private var accountedWords = countManuscriptWords(text)
+    /** Palavras escritas já apuradas que ainda vão sair na próxima gravação. */
+    private var pendingWritten = 0
 
     private val undoStack = ArrayDeque<TextFieldValue>()
     private val redoStack = ArrayDeque<TextFieldValue>()
@@ -94,8 +108,13 @@ class ChapterSession(
             value = newValue
             return
         }
+        // O que foi digitado até aqui conta; o que o app trouxe só sobe a marca.
+        val before = words
+        pendingWritten += mark.wrote(chapterId, accountedWords, before)
         recordUndo(value, mergeable = false)
         change(newValue)
+        accountedWords = words
+        mark.appEdited(chapterId, before, accountedWords)
     }
 
     /** Só a seleção muda (ir para uma ocorrência, clicar fora do texto): não é edição nem passo do desfazer. */
@@ -120,8 +139,45 @@ class ChapterSession(
         updateUndoFlags()
     }
 
+    /**
+     * Grava agora o que estiver pendente. `false` se a gravação falhou: o texto continua pendente, em
+     * [SaveState.Erro], e a próxima edição ou chamada tenta de novo.
+     */
+    fun flush(): Boolean {
+        autosaveJob?.cancel()
+        autosaveJob = null
+        return saveState == SaveState.Salvo || save()
+    }
+
+    private fun save(): Boolean {
+        saveState = SaveState.Salvando
+        val body = value.text
+        try {
+            write(body)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            saveState = SaveState.Erro
+            return false
+        }
+        val saved = countManuscriptWords(body)
+        pendingWritten += mark.wrote(chapterId, accountedWords, saved)
+        accountedWords = saved
+        onSaved(ChapterSaved(words = saved, written = pendingWritten, activeSeconds = mark.takeActiveSeconds()))
+        pendingWritten = 0
+        saveState = SaveState.Salvo
+        return true
+    }
+
     private fun change(newValue: TextFieldValue) {
         value = newValue
+        mark.activity(now())
+        saveState = SaveState.Pendente
+        autosaveJob?.cancel()
+        autosaveJob = scope.launch {
+            delay(AUTOSAVE_DELAY_MS)
+            save()
+        }
     }
 
     private fun recordUndo(previous: TextFieldValue, mergeable: Boolean) {
@@ -152,8 +208,12 @@ class ChapterSession(
     }
 
     companion object {
+        const val AUTOSAVE_DELAY_MS = 800L
         const val UNDO_MERGE_MS = 1_500L
         const val FIELD_SYNC_MS = 120L
         const val MAX_UNDO = 300
     }
 }
+
+/** Resultado de uma gravação do capítulo: [written] palavras escritas e [activeSeconds] desde a anterior. */
+data class ChapterSaved(val words: Int, val written: Int, val activeSeconds: Long)
