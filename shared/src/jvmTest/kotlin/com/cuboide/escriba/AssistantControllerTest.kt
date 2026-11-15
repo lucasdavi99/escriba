@@ -5,6 +5,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import com.cuboide.escriba.app.EscribaController
 import com.cuboide.escriba.app.EscribaServices
 import com.cuboide.escriba.core.ai.AiConfig
+import com.cuboide.escriba.core.ai.AiEvent
 import com.cuboide.escriba.core.ai.AiException
 import com.cuboide.escriba.core.ai.AiProvider
 import com.cuboide.escriba.core.ai.AiRef
@@ -16,6 +17,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.mapNotNull
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -30,11 +32,16 @@ class AssistantControllerTest {
     private val requests = mutableListOf<AiRequest>()
     private var reply: List<String> = listOf("Resposta ", "da IA.")
     private var failWith: String? = null
+    /** Quantas das próximas respostas param pelo limite de tamanho. */
+    private var cutNext = 0
     private val fake = object : AiProvider {
-        override fun stream(req: AiRequest): Flow<String> = flow {
+        override fun stream(req: AiRequest): Flow<String> = events(req).mapNotNull { (it as? AiEvent.Text)?.text }
+
+        override fun events(req: AiRequest): Flow<AiEvent> = flow {
             requests += req
             failWith?.let { throw AiException(it) }
-            reply.forEach { emit(it) }
+            reply.forEach { emit(AiEvent.Text(it)) }
+            emit(AiEvent.Stop(truncated = cutNext-- > 0))
         }
     }
     private val services = EscribaServices(fs, "/lib", "/data", { clock.now }, clock::id, { "2026-11-14" }, aiProvider = { fake })
@@ -260,7 +267,7 @@ class AssistantControllerTest {
         a.send("O que acha desse capítulo?", null)
         waitIdle()
         assertTrue("Primeiro capítulo inteiro aqui." in requests.single().system)
-        assertEquals(8192, requests.single().maxTokens)
+        assertEquals(a.config.maxOutputTokens, requests.single().maxTokens)
         assertTrue(a.fullBook) // continua ligado para a próxima pergunta
         a.toggleFullBook()
         assertFalse(a.fullBook)
@@ -311,5 +318,36 @@ class AssistantControllerTest {
         val custom = a.addMode()
         a.updateMode(custom.copy(name = "Poeta", instructions = "Responda em versos."))
         assertTrue(a.config.modes.any { it.name == "Poeta" })
+    }
+
+    /** Resposta cortada pelo limite: fica marcada e "Continuar" completa a mesma mensagem. */
+    @Test
+    fun truncatedAnswerIsMarkedAndCanBeContinued() {
+        connect()
+        c.createBook("Livro", "")
+        cutNext = 1
+        reply = listOf("Primeira parte ")
+        a.send("Analise o livro", null)
+        waitIdle()
+        val answer = a.current!!.messages.last()
+        assertTrue(answer.truncated)
+        assertEquals(16_000, requests.last().maxTokens)
+
+        reply = listOf("e o final.")
+        a.continueAnswer(answer)
+        waitIdle()
+        val msgs = a.current!!.messages
+        assertEquals(2, msgs.size) // nada de mensagem nova: completa a mesma
+        assertEquals("Primeira parte e o final.", msgs.last().text)
+        assertFalse(msgs.last().truncated)
+        // O pedido de continuação leva a resposta cortada e a instrução de seguir dela, com o mesmo contexto.
+        val last = requests.last()
+        assertEquals("Primeira parte ", last.messages[last.messages.size - 2].text)
+        assertTrue("Continue exatamente" in last.messages.last().text)
+        assertEquals(requests.first().system, last.system)
+        // E fica guardado no livro.
+        val saved = services.books.loadConversations(c.book!!.path).conversations.single().messages.last()
+        assertEquals("Primeira parte e o final.", saved.text)
+        assertFalse(saved.truncated)
     }
 }

@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.input.TextFieldValue
 import com.cuboide.escriba.core.ai.AiConfig
+import com.cuboide.escriba.core.ai.AiEvent
 import com.cuboide.escriba.core.ai.AiException
 import com.cuboide.escriba.core.ai.AiRef
 import com.cuboide.escriba.core.ai.AiRequest
@@ -370,28 +371,9 @@ class AssistantController(
         val userId = services.newId()
         draftSelectionRange?.let { r -> if (refs.any { it is AiRef.Selection }) selectionRanges[userId] = r }
 
-        val others = refs.filterIsInstance<AiRef.Book>().mapNotNull { r ->
-            runCatching { r.path to loadBookContext(r.path) }.getOrNull()
-        }.toMap()
         val history = current?.messages.orEmpty()
         val previousQuestion = history.lastOrNull { it.role == ChatRole.User }?.text.orEmpty()
-        val built = ContextBuilder.build(
-            book = currentBookContext(),
-            query = if (text.length < 60) "$previousQuestion $text" else text,
-            refs = refs,
-            budgetTokens = if (fullBook) cfg.fullBookBudgetTokens else cfg.contextBudgetTokens,
-            others = others,
-            fullBook = fullBook,
-            instructions = AuthorInstructions(cfg.generalInstructions, bookInstructions, mode),
-        )
-        // Uma análise do livro todo costuma ser longa: deixa a resposta crescer mais.
-        val maxTokens = if (fullBook) 8192 else 4096
-        if (fullBook) {
-            refreshFullBookEstimate()
-            if (built.cutChapters > 0) {
-                c.message = "O livro não coube inteiro: ${built.cutChapters} capítulo(s) foram encurtados. Aumente o limite em Preferências."
-            }
-        }
+        val built = buildContext(cfg, text, refs, previousQuestion)
 
         val now = services.now()
         val userMsg = ChatMessage(userId, ChatRole.User, text, refs, built.used, now)
@@ -403,19 +385,81 @@ class AssistantController(
         draft = TextFieldValue("")
         draftRefs = emptyList()
         draftSelectionRange = null
-        busy = true
+        streamAnswer(cfg, conv.id, assistantId, AiRequest(built.system, turns, cfg.effectiveModel, cfg.maxOutputTokens), prefix = "")
+    }
 
+    /**
+     * Completa uma resposta cortada pelo limite de tamanho, na mesma mensagem: mesmo contexto da pergunta original
+     * e um pedido para seguir de onde parou.
+     */
+    fun continueAnswer(answer: ChatMessage) {
+        if (busy || c.book == null) return
+        val cfg = config
+        if (!cfg.isConfigured) {
+            error = "Conecte uma IA em Preferências (provedor, chave e modelo)."
+            return
+        }
+        val conv = current ?: return
+        val i = conv.messages.indexOfFirst { it.id == answer.id }
+        val question = conv.messages.getOrNull(i - 1)?.takeIf { it.role == ChatRole.User } ?: return
+        error = null
+        c.flushSave()
+        val previousQuestion = conv.messages.take(i - 1).lastOrNull { it.role == ChatRole.User }?.text.orEmpty()
+        val built = buildContext(cfg, question.text, question.refs, previousQuestion)
+        val turns = conv.messages.take(i + 1).takeLast(MAX_HISTORY).map { ChatTurn(it.role, it.text) } +
+            ChatTurn(ChatRole.User, CONTINUE_PROMPT)
+        setAssistantTruncated(conv.id, answer.id, false)
+        streamAnswer(cfg, conv.id, answer.id, AiRequest(built.system, turns, cfg.effectiveModel, cfg.maxOutputTokens), prefix = answer.text)
+    }
+
+    /** O prompt de sistema da pergunta: contexto do livro, outros livros apontados e as instruções do autor. */
+    private fun buildContext(cfg: AiConfig, text: String, refs: List<AiRef>, previousQuestion: String): com.cuboide.escriba.core.ai.BuiltContext {
+        val others = refs.filterIsInstance<AiRef.Book>().mapNotNull { r ->
+            runCatching { r.path to loadBookContext(r.path) }.getOrNull()
+        }.toMap()
+        val built = ContextBuilder.build(
+            book = currentBookContext(),
+            query = if (text.length < 60) "$previousQuestion $text" else text,
+            refs = refs,
+            budgetTokens = if (fullBook) cfg.fullBookBudgetTokens else cfg.contextBudgetTokens,
+            others = others,
+            fullBook = fullBook,
+            instructions = AuthorInstructions(cfg.generalInstructions, bookInstructions, mode),
+        )
+        if (fullBook) {
+            refreshFullBookEstimate()
+            if (built.cutChapters > 0) {
+                c.message = "O livro não coube inteiro: ${built.cutChapters} capítulo(s) foram encurtados. Aumente o limite em Preferências."
+            }
+        }
+        return built
+    }
+
+    /**
+     * Transmite a resposta para a mensagem [assistantId], depois de [prefix] (vazio numa resposta nova; o texto que
+     * já existe ao continuar). Marca a mensagem como cortada se o provedor parou pelo limite de tamanho.
+     */
+    private fun streamAnswer(cfg: AiConfig, convId: String, assistantId: String, request: AiRequest, prefix: String) {
+        busy = true
         val askedIn = bookPath
         // Começa só depois de guardado em [job]: o `finally` compara com ele para saber se ainda é a resposta atual.
         job = scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
             val thisAnswer = coroutineContext[Job]
             val out = StringBuilder()
             try {
-                services.aiProvider(cfg).stream(AiRequest(built.system, turns, cfg.effectiveModel, maxTokens)).collect { chunk ->
-                    out.append(chunk)
-                    setAssistantText(conv.id, assistantId, out.toString())
+                services.aiProvider(cfg).events(request).collect { event ->
+                    when (event) {
+                        is AiEvent.Text -> {
+                            out.append(event.text)
+                            setAssistantText(convId, assistantId, prefix + out.toString())
+                        }
+                        is AiEvent.Stop -> setAssistantTruncated(convId, assistantId, event.truncated)
+                    }
                 }
-                if (out.isBlank()) error = "A IA não devolveu texto. Tente de novo ou confira o modelo."
+                if (out.isBlank()) {
+                    error = if (prefix.isEmpty()) "A IA não devolveu texto. Tente de novo ou confira o modelo."
+                    else "A IA não continuou a resposta. Tente de novo."
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: AiException) {
@@ -430,7 +474,7 @@ class AssistantController(
                 }
                 // E se o livro mudou nesse meio-tempo, as conversas abertas são de outro livro.
                 if (bookPath == askedIn) {
-                    if (out.isBlank()) removeMessage(conv.id, assistantId) else persist()
+                    if (out.isBlank() && prefix.isEmpty()) removeMessage(convId, assistantId) else persist()
                 }
             }
         }.also { it.start() }
@@ -539,7 +583,13 @@ class AssistantController(
         }
     }
 
-    private fun removeMessage(convId: String, messageId: String) {
+    private fun setAssistantTruncated(convId: String, messageId: String, truncated: Boolean) {
+        conversations = conversations.map { cv ->
+            if (cv.id != convId) cv else cv.copy(messages = cv.messages.map { if (it.id == messageId) it.copy(truncated = truncated) else it })
+        }
+    }
+
+        private fun removeMessage(convId: String, messageId: String) {
         conversations = conversations.map { cv ->
             if (cv.id != convId) cv else cv.copy(messages = cv.messages.filterNot { it.id == messageId })
         }
@@ -555,6 +605,9 @@ class AssistantController(
     companion object {
         /** Mensagens anteriores reenviadas junto com a nova pergunta. */
         const val MAX_HISTORY = 12
+        /** Pedido escondido que segue uma resposta cortada pelo limite de tamanho. */
+        const val CONTINUE_PROMPT = "Sua resposta anterior foi cortada pelo limite de tamanho. Continue exatamente do ponto " +
+            "em que parou, sem repetir nada do que já escreveu e sem introdução: comece pela próxima palavra."
         const val TEST_TIMEOUT_MS = 45_000L
         /** Capítulos citados no pedido que entram inteiros (o resto entra só por passagens relevantes). */
         const val MAX_NAMED_CHAPTERS = 3

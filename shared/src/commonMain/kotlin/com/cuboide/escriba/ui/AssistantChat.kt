@@ -159,6 +159,16 @@ private fun MessageView(c: EscribaController, m: ChatMessage, question: ChatMess
             if (m.text.isEmpty() && working) Text("Pensando…", style = MaterialTheme.typography.bodyMedium, color = palette.muted)
             else ChatMarkdownView(m.text)
         }
+        if (!working && m.truncated) {
+            // O provedor parou pelo limite de tamanho: o texto acima está incompleto.
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.xs)) {
+                Text(
+                    "A resposta foi cortada pelo limite de tamanho.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,
+                )
+                Button(onClick = { a.continueAnswer(m) }, enabled = !a.busy) { Text("Continuar resposta") }
+            }
+        }
         if (!working && m.text.isNotEmpty()) {
             Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconAction(Icons.Outlined.ContentCopy, "Copiar resposta", { a.copy(m) }, size = 30.dp)

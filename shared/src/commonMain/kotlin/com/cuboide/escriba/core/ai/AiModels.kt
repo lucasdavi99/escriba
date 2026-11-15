@@ -31,10 +31,17 @@ data class AiConfig(
     val fullBookBudgetTokens: Int = DEFAULT_FULL_BOOK_BUDGET,
     /** O usuário já viu o aviso de que o texto do livro vai para o provedor. */
     val consentGiven: Boolean = false,
+    /**
+     * Tamanho máximo de cada resposta, em tokens. Nos modelos que "pensam" antes de responder (Gemini 2.5+, por
+     * exemplo), o raciocínio conta dentro desse limite, então ele precisa de folga.
+     */
+    val maxOutputTokens: Int = DEFAULT_MAX_OUTPUT,
     /** Instruções do autor para todas as conversas, de todos os livros (tom, jeito de ser ajudado). */
     val generalInstructions: String = "",
     /** Papéis que o autor escolhe no chat (Revisor, Leitor beta…); editáveis nas Preferências. */
     val modes: List<AiMode> = DEFAULT_AI_MODES,
+    /** Versão dos modos de fábrica já aplicada (ver `withUpgradedModes`); 0 em arquivos antigos. */
+    val modesVersion: Int = 0,
 ) {
     val effectiveModel: String get() = model.trim().ifEmpty { provider.defaultModel }
     val effectiveBaseUrl: String get() = baseUrl.trim().ifEmpty { provider.defaultBaseUrl }.trimEnd('/')
@@ -47,39 +54,11 @@ data class AiConfig(
         const val MAX_CONTEXT_BUDGET = 200_000
         const val DEFAULT_FULL_BOOK_BUDGET = 120_000
         const val MAX_FULL_BOOK_BUDGET = 1_000_000
+        const val DEFAULT_MAX_OUTPUT = 16_000
+        const val MIN_MAX_OUTPUT = 2_000
+        const val MAX_MAX_OUTPUT = 64_000
     }
 }
-
-/** Papel do assistente numa conversa, com as instruções que ele segue. */
-@Serializable
-data class AiMode(val id: String, val name: String, val instructions: String = "")
-
-/** Modos que vêm com o app (o autor pode mudar, apagar e criar outros; "Restaurar" volta a estes). */
-val DEFAULT_AI_MODES: List<AiMode> = listOf(
-    AiMode(
-        "revisor", "Revisor",
-        "Aja como revisor profissional de português do Brasil. Aponte erros de ortografia, acentuação, gramática, " +
-            "concordância, regência e pontuação, além de palavras repetidas e vícios de linguagem. Para cada problema, " +
-            "mostre o trecho original, a correção e uma explicação curta. Não mude o estilo nem a voz do autor.",
-    ),
-    AiMode(
-        "leitor-beta", "Leitor beta",
-        "Aja como um leitor beta atento, do público do livro. Conte como foi a leitura: onde prendeu, onde perdeu o " +
-            "interesse, o que confundiu, o que emocionou e o que pareceu previsível. Fale como leitor, não como " +
-            "professor, e seja honesto.",
-    ),
-    AiMode(
-        "editor", "Editor",
-        "Aja como editor de desenvolvimento experiente. Avalie estrutura, ritmo, tensão, arcos dos personagens, ponto " +
-            "de vista, coerência com o resto do livro e a função de cada cena. Aponte os problemas por ordem de " +
-            "importância e sugira caminhos concretos para resolvê-los.",
-    ),
-    AiMode(
-        "coautor", "Coautor",
-        "Aja como coautor criativo. Proponha ideias, caminhos e textos na voz do autor, com ousadia, respeitando o " +
-            "universo e o enredo. Não faça críticas a menos que o autor peça.",
-    ),
-)
 
 @Serializable
 enum class ChatRole { User, Assistant }
@@ -109,6 +88,8 @@ data class ChatMessage(
     val refs: List<AiRef> = emptyList(),
     val usedContext: List<ContextItem> = emptyList(),
     val createdAt: Long = 0,
+    /** A resposta parou pelo limite de tamanho (o autor pode pedir para continuar). */
+    val truncated: Boolean = false,
 )
 
 @Serializable

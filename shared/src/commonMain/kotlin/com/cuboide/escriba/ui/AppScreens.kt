@@ -362,6 +362,9 @@ private fun AssistantSettings(c: EscribaController) {
     StepperRow("Contexto do livro por pergunta (tokens)", "${cfg.contextBudgetTokens / 1000} mil",
         onMinus = { a.updateConfig { it.copy(contextBudgetTokens = (it.contextBudgetTokens - 4000).coerceAtLeast(com.cuboide.escriba.core.ai.AiConfig.MIN_CONTEXT_BUDGET)) } },
         onPlus = { a.updateConfig { it.copy(contextBudgetTokens = (it.contextBudgetTokens + 4000).coerceAtMost(com.cuboide.escriba.core.ai.AiConfig.MAX_CONTEXT_BUDGET)) } })
+    StepperRow("Tamanho máximo da resposta (tokens)", "${cfg.maxOutputTokens / 1000} mil",
+        onMinus = { a.updateConfig { it.copy(maxOutputTokens = (it.maxOutputTokens - 4_000).coerceAtLeast(com.cuboide.escriba.core.ai.AiConfig.MIN_MAX_OUTPUT)) } },
+        onPlus = { a.updateConfig { it.copy(maxOutputTokens = (it.maxOutputTokens + 4_000).coerceAtMost(com.cuboide.escriba.core.ai.AiConfig.MAX_MAX_OUTPUT)) } })
     StepperRow("Limite com “Livro inteiro” ligado (tokens)", "${cfg.fullBookBudgetTokens / 1000} mil",
         onMinus = { a.updateConfig { it.copy(fullBookBudgetTokens = (it.fullBookBudgetTokens - 20_000).coerceAtLeast(com.cuboide.escriba.core.ai.AiConfig.MIN_CONTEXT_BUDGET)) } },
         onPlus = { a.updateConfig { it.copy(fullBookBudgetTokens = (it.fullBookBudgetTokens + 20_000).coerceAtMost(com.cuboide.escriba.core.ai.AiConfig.MAX_FULL_BOOK_BUDGET)) } })

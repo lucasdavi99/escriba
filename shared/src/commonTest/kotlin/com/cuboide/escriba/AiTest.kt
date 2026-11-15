@@ -17,6 +17,7 @@ import com.cuboide.escriba.core.ai.OpenAiProvider
 import com.cuboide.escriba.core.ai.AiException
 import com.cuboide.escriba.core.ai.friendlyHttpError
 import com.cuboide.escriba.core.ai.scorePieces
+import com.cuboide.escriba.core.ai.withUpgradedModes
 import com.cuboide.escriba.core.model.Beat
 import com.cuboide.escriba.core.model.BookManifest
 import com.cuboide.escriba.core.model.ChapterMeta
@@ -70,6 +71,26 @@ class AiTest {
         assertNull(OpenAiProvider.parseOpenAiLine("data: [DONE]"))
         assertNull(OpenAiProvider.parseOpenAiLine("""data: {"choices":[{"delta":{"role":"assistant"}}]}"""))
         assertFailsWith<AiException> { OpenAiProvider.parseOpenAiLine("""data: {"error":{"message":"cota"}}""") }
+    }
+
+    /** O motivo da parada diz se a resposta foi cortada pelo limite de tamanho. */
+    @Test
+    fun stopReasonTellsWhenTheAnswerWasCut() {
+        val ev = com.cuboide.escriba.core.ai.AiEvent.Stop(truncated = true)
+        assertEquals(
+            listOf(com.cuboide.escriba.core.ai.AiEvent.Text("fim"), ev),
+            OpenAiProvider.parseOpenAiEvents("""data: {"choices":[{"delta":{"content":"fim"},"finish_reason":"length"}]}"""),
+        )
+        assertEquals(
+            listOf(com.cuboide.escriba.core.ai.AiEvent.Stop(truncated = false)),
+            OpenAiProvider.parseOpenAiEvents("""data: {"choices":[{"delta":{},"finish_reason":"stop"}]}"""),
+        )
+        assertEquals(emptyList(), OpenAiProvider.parseOpenAiEvents("""data: {"choices":[{"delta":{"content":""},"finish_reason":null}]}"""))
+        assertEquals(ev, AnthropicProvider.parseAnthropicEvent("""data: {"type":"message_delta","delta":{"stop_reason":"max_tokens"}}"""))
+        assertEquals(
+            com.cuboide.escriba.core.ai.AiEvent.Stop(truncated = false),
+            AnthropicProvider.parseAnthropicEvent("""data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}"""),
+        )
     }
 
     @Test
@@ -166,6 +187,40 @@ class AiTest {
         assertTrue("Cerco ao porto" in built.system) // roteiro sempre vai
         assertTrue("Olhos: verdes (fato fixo, não pode mudar)" in built.system)
         assertTrue(built.used.any { it.ref == AiRef.Entry("e1") })
+    }
+
+    /** Modos salvos na versão 1: os de fábrica ganham o texto novo, os editados ficam, e os novos aparecem. */
+    @Test
+    fun savedModesAreUpgradedWithoutLosingEdits() {
+        val v1Revisor = "Aja como revisor profissional de português do Brasil. Aponte erros de ortografia, acentuação, gramática, " +
+            "concordância, regência e pontuação, além de palavras repetidas e vícios de linguagem. Para cada problema, " +
+            "mostre o trecho original, a correção e uma explicação curta. Não mude o estilo nem a voz do autor."
+        val old = AiConfig(
+            modes = listOf(
+                com.cuboide.escriba.core.ai.AiMode("revisor", "Revisor", v1Revisor),
+                com.cuboide.escriba.core.ai.AiMode("editor", "Meu editor", "Minhas regras."),
+                com.cuboide.escriba.core.ai.AiMode("x", "Poeta", "Em versos."),
+            ),
+        )
+        val up = old.withUpgradedModes()
+        val byId = up.modes.associateBy { it.id }
+        assertTrue("Antes:" in byId.getValue("revisor").instructions) // texto novo
+        assertEquals("Minhas regras.", byId.getValue("editor").instructions) // editado pelo autor: fica
+        assertEquals("Em versos.", byId.getValue("x").instructions)
+        assertTrue("painel" in byId && "continuidade" in byId) // novos
+        assertTrue("leitor-beta" !in byId) // apagado pelo autor: não volta
+        assertEquals(up, up.withUpgradedModes()) // idempotente
+        // Quem começa agora já tem os seis modos novos.
+        assertEquals(6, AiConfig().withUpgradedModes().modes.size)
+    }
+
+    @Test
+    fun aiStoreUpgradesOldFilesOnLoad() {
+        val fs = InMemoryFileStore()
+        fs.writeText("/data/ia.json", """{"apiKey":"k","modes":[{"id":"editor","name":"Editor","instructions":"x"}]}""")
+        val cfg = AiStore(fs, "/data/ia.json").current
+        assertEquals("k", cfg.apiKey)
+        assertEquals(listOf("editor", "painel", "continuidade"), cfg.modes.map { it.id })
     }
 
     /** As três camadas de instruções do autor entram no prompt, depois das regras fixas e antes do contexto. */

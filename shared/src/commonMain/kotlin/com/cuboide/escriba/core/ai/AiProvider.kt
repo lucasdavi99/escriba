@@ -6,8 +6,10 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.takeWhile
+import kotlinx.coroutines.flow.transform
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -36,9 +38,19 @@ class AiException(message: String) : Exception(message)
 /** Resposta HTTP que não foi 2xx (lançada por [httpStreamLines]). */
 class HttpStatusException(val status: Int, val body: String) : Exception("HTTP $status")
 
+/** O que chega do provedor: pedaços de texto e, no fim, como a resposta terminou. */
+sealed interface AiEvent {
+    data class Text(val text: String) : AiEvent
+    /** [truncated]: a resposta parou pelo limite de tamanho (`length` / `max_tokens`), não porque acabou. */
+    data class Stop(val truncated: Boolean) : AiEvent
+}
+
 interface AiProvider {
     /** Pedaços de texto da resposta, à medida que chegam. Falhas viram [AiException] em português. */
     fun stream(req: AiRequest): Flow<String>
+
+    /** Como [stream], mas também diz como a resposta terminou (para avisar quando foi cortada). */
+    fun events(req: AiRequest): Flow<AiEvent> = stream(req).map { AiEvent.Text(it) }
 }
 
 fun createAiProvider(config: AiConfig): AiProvider = when (config.provider) {
@@ -50,7 +62,9 @@ private val json = Json { ignoreUnknownKeys = true }
 
 /** API de mensagens da Anthropic, com SSE. */
 class AnthropicProvider(private val config: AiConfig) : AiProvider {
-    override fun stream(req: AiRequest): Flow<String> =
+    override fun stream(req: AiRequest): Flow<String> = events(req).mapNotNull { (it as? AiEvent.Text)?.text }
+
+    override fun events(req: AiRequest): Flow<AiEvent> =
         httpStreamLines(
             url = config.effectiveBaseUrl + "/v1/messages",
             headers = mapOf(
@@ -60,9 +74,19 @@ class AnthropicProvider(private val config: AiConfig) : AiProvider {
             ),
             body = anthropicBody(req),
         ).takeWhile { !(sseData(it)?.contains("\"message_stop\"") ?: false) } // fim da resposta: não espera a conexão fechar
-            .mapNotNull { parseAnthropicLine(it) }.translateErrors()
+            .mapNotNull { parseAnthropicEvent(it) }.translateErrors()
 
     companion object {
+        /** Evento de uma linha SSE: texto novo, o fim da resposta (com o motivo) ou `null`. */
+        fun parseAnthropicEvent(line: String): AiEvent? {
+            parseAnthropicLine(line)?.let { return AiEvent.Text(it) }
+            val data = sseData(line) ?: return null
+            val obj = runCatching { json.parseToJsonElement(data).jsonObject }.getOrNull() ?: return null
+            if (obj["type"]?.jsonPrimitive?.contentOrNull != "message_delta") return null
+            val reason = obj["delta"]?.jsonObject?.get("stop_reason")?.jsonPrimitive?.contentOrNull ?: return null
+            return AiEvent.Stop(truncated = reason == "max_tokens")
+        }
+
         fun anthropicBody(req: AiRequest): String = buildJsonObject {
             put("model", req.model)
             put("max_tokens", req.maxTokens)
@@ -89,17 +113,35 @@ class AnthropicProvider(private val config: AiConfig) : AiProvider {
 
 /** Chat Completions da OpenAI, com SSE. Serve também para Ollama, OpenRouter e semelhantes. */
 class OpenAiProvider(private val config: AiConfig) : AiProvider {
-    override fun stream(req: AiRequest): Flow<String> {
+    override fun stream(req: AiRequest): Flow<String> = events(req).mapNotNull { (it as? AiEvent.Text)?.text }
+
+    override fun events(req: AiRequest): Flow<AiEvent> {
         val headers = buildMap {
             put("content-type", "application/json")
             if (config.apiKey.isNotBlank()) put("authorization", "Bearer ${config.apiKey}")
         }
         return httpStreamLines(openAiUrl(config.effectiveBaseUrl), headers, openAiBody(req))
             .takeWhile { sseData(it) != "[DONE]" } // fim da resposta: não espera a conexão fechar
-            .mapNotNull { parseOpenAiLine(it) }.translateErrors()
+            .transform { line -> parseOpenAiEvents(line).forEach { emit(it) } }.translateErrors()
     }
 
     companion object {
+        /**
+         * Eventos de uma linha SSE. O último pedaço pode trazer texto e o motivo da parada juntos
+         * (`finish_reason`: "length" quando o limite de tamanho cortou a resposta).
+         */
+        fun parseOpenAiEvents(line: String): List<AiEvent> {
+            val text = parseOpenAiLine(line)
+            val data = sseData(line) ?: return emptyList()
+            val obj = runCatching { json.parseToJsonElement(data).jsonObject }.getOrNull()
+            val choice = (obj?.get("choices") as? JsonArray)?.firstOrNull() as? JsonObject
+            val reason = choice?.get("finish_reason")?.let { (it as? JsonPrimitive)?.contentOrNull }
+            return buildList {
+                if (text != null) add(AiEvent.Text(text))
+                if (reason != null) add(AiEvent.Stop(truncated = reason == "length" || reason == "max_tokens"))
+            }
+        }
+
         /** Aceita o endereço com ou sem `/v1` no fim; o do Gemini (`…/v1beta/openai`) já tem o prefixo da versão. */
         fun openAiUrl(base: String): String {
             val b = base.trimEnd('/')
